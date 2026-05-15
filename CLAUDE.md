@@ -33,7 +33,7 @@ python main.py       # one-shot pipeline (no scheduler, no Telegram, no checkpoi
 
 No test runner configured. `test_*.py` files in root are ad-hoc scripts (`python test_tts.py`), not pytest suites.
 
-Requires: FFmpeg in PATH (MoviePy), `credentials.json` (Google OAuth desktop), `.env` with AI service vars, `PEXELS_API_KEY`, Telegram bot token. All populated by `setup.py`.
+Requires: FFmpeg in PATH (MoviePy), `credentials.json` (Google OAuth desktop), `.env` with AI service vars, `PEXELS_API_KEY`, Telegram bot token. All populated by `wizard.py`.
 
 ### AI service (`AI_SERVICE` in `.env`)
 | Value | Provider | Key var |

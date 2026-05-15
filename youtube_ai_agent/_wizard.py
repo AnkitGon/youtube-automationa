@@ -10,7 +10,7 @@ from pathlib import Path
 
 def main():
     # Prefer root setup.py (git clone / editable install)
-    root_wizard = Path(__file__).parent.parent / "setup.py"
+    root_wizard = Path(__file__).parent.parent / "wizard.py"
     bundled     = Path(__file__).parent / "_wizard_standalone.py"
 
     wizard_path = root_wizard if root_wizard.exists() else bundled

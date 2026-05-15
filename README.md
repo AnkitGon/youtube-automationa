@@ -201,7 +201,7 @@ moduli/
   telegram_handler.py   Telegram bot (live control)
   ai_client.py          Multi-provider AI client
 agent.py                Main daemon (24/7 scheduler)
-setup.py                Configuration wizard
+wizard.py               Configuration wizard
 ```
 
 ---
