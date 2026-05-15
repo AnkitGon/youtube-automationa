@@ -157,10 +157,8 @@ def _launch(workspace: Path, command: str) -> int:
 
 def _check_setup(workspace: Path) -> bool:
     if not (workspace / ".setup_done").exists():
-        print(
-            f"\n[!] Workspace not configured: {workspace}\n"
-            "    Run: tube-assistant onboard\n"
-        )
+        print("\n  Setup required — launching wizard...\n")
+        cmd_onboard()
         return False
     return True
 
