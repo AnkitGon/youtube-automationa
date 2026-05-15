@@ -30,7 +30,6 @@ dependencies = [
 
 [project.scripts]
 tube-assistant = "youtube_ai_agent.cli:main"
-youtube-ai-agent = "youtube_ai_agent.cli:main"
 
 # Install both youtube_ai_agent/ (CLI) and moduli/ (core logic) as top-level packages.
 # This means `from moduli.xxx import yyy` continues to work unchanged in all modules.
