@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/assets/logo.png" alt="TubeAssistant Logo" width="180"/>
+  <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/assets/logo.png" alt="TubeAssistant Logo" width="380"/>
 </p>
 
 # TubeAssistant
