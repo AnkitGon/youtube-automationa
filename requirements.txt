@@ -1,0 +1,13 @@
+ollama>=0.2.0
+edge-tts>=6.1.9
+rich>=13.0.0
+requests>=2.31.0
+moviepy>=1.0.3
+Pillow>=10.0.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth>=2.0.0
+python-dotenv>=1.0.0
+python-telegram-bot>=22.0
+ddgs>=9.0.0
+gTTS>=2.5.0

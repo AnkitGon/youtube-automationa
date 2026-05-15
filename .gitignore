@@ -1,0 +1,35 @@
+# secrets & runtime state
+.env
+credentials.json
+client_secret_*.json
+token.json
+preferenze_video.json
+state.json
+state.json.bak
+memoria_lungo_termine.json
+strategia_storia.json
+
+# runtime output
+output/
+cache/
+logs/
+
+# setup artifacts
+.setup_done
+_creds_setup_tmp.json
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE / tools
+.claude/
+.vscode/
+.idea/
+*.swp
