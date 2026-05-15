@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/assets/logo.png" alt="TubeAssistant Logo" width="180"/>
+</p>
+
 # TubeAssistant
 
 > **Run a YouTube channel on autopilot — no editing, no scripting, no scheduling.**
