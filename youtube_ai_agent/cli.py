@@ -66,7 +66,23 @@ _MENU_ITEMS = [
 ]
 
 
+def _enable_ansi() -> None:
+    """Enable ANSI escape code processing on Windows 10+."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_ulong()
+        kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+        kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        pass
+
+
 def _tui_menu() -> None:
+    _enable_ansi()
     try:
         from rich.console import Console
     except ImportError:
