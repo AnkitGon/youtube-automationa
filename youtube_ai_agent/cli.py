@@ -69,29 +69,42 @@ _MENU_ITEMS = [
 def _tui_menu() -> None:
     try:
         from rich.console import Console
-        from rich.text import Text
     except ImportError:
-        # rich not available yet — fall back to plain help
         print(_HELP)
         return
 
     console = Console()
     selected = 0
 
-    def _render(sel: int) -> None:
-        console.clear()
-        console.print()
-        console.print(f"  [bold red]TubeAssistant[/]")
-        console.print()
+    # number of lines the menu occupies (used to move cursor back up on redraw)
+    # blank + title + blank + N items + blank + hint = N + 5
+    _MENU_HEIGHT = len(_MENU_ITEMS) + 5
+
+    def _render(sel: int, first: bool = False) -> None:
+        lines = []
+        lines.append("")
+        lines.append("  [bold red]TubeAssistant[/]")
+        lines.append("")
         for i, (label, _) in enumerate(_MENU_ITEMS):
             if i == sel:
-                console.print(f"  [bold cyan]> {label}[/]")
+                lines.append(f"  [bold cyan]> {label}[/]")
             else:
-                console.print(f"    [dim]{label}[/]")
-        console.print()
-        console.print("  [dim]↑/↓  enter  esc[/]")
+                lines.append(f"    [dim]{label}[/]")
+        lines.append("")
+        lines.append("  [dim]↑/↓  enter  esc[/]")
 
-    _render(selected)
+        if not first:
+            # move cursor up to overwrite previous render
+            sys.stdout.write(f"\033[{_MENU_HEIGHT}A")
+            sys.stdout.flush()
+
+        for line in lines:
+            # clear the line then print
+            sys.stdout.write("\033[2K")
+            sys.stdout.flush()
+            console.print(line)
+
+    _render(selected, first=True)
 
     while True:
         key = _read_key()
@@ -103,13 +116,13 @@ def _tui_menu() -> None:
             _render(selected)
         elif key == "ENTER":
             _, cmd = _MENU_ITEMS[selected]
-            console.clear()
+            print()
             if cmd is None:
                 sys.exit(0)
             _COMMANDS[cmd]()
             return
         elif key == "ESC":
-            console.clear()
+            print()
             sys.exit(0)
 
 
