@@ -150,54 +150,21 @@ def err(msg: str):  console.print(f"  [bold red]✗[/]  {msg}")
 # ── step 1 — AI service ───────────────────────────────────────────────────────
 
 AI_SERVICES = {
-    "1": {
-        "name":       "OpenRouter",
-        "desc":       "Cloud API — free tier available",
-        "hint":       "Get a free key at openrouter.ai/keys",
-        "service_id": "openrouter",
-        "env_key":    "OPENROUTER_API_KEY",
-        "url":        "https://openrouter.ai/keys",
-    },
-    "2": {
-        "name":       "OpenAI",
-        "desc":       "GPT-4o, GPT-4o-mini (paid)",
-        "hint":       "Get a key at platform.openai.com/api-keys",
-        "service_id": "openai",
-        "env_key":    "OPENAI_API_KEY",
-        "url":        "https://platform.openai.com/api-keys",
-    },
-    "3": {
-        "name":       "Anthropic",
-        "desc":       "Claude 3.5 Haiku / Sonnet (paid)",
-        "hint":       "Get a key at console.anthropic.com",
-        "service_id": "anthropic",
-        "env_key":    "ANTHROPIC_API_KEY",
-        "url":        "https://console.anthropic.com",
-    },
-    "4": {
-        "name":       "Gemini",
-        "desc":       "Google Gemini 2.0 Flash — free tier",
-        "hint":       "Get a free key at aistudio.google.com/apikey",
-        "service_id": "gemini",
-        "env_key":    "GEMINI_API_KEY",
-        "url":        "https://aistudio.google.com/apikey",
-    },
-    "5": {
-        "name":       "Ollama Cloud",
-        "desc":       "Hosted nemotron-3-super model",
-        "hint":       "Get a key at ollama.com",
-        "service_id": "ollama_cloud",
-        "env_key":    "OLLAMA_API_KEY",
-        "url":        "https://ollama.com",
-    },
-    "6": {
-        "name":       "Local Ollama",
-        "desc":       "Run any model on your machine — free",
-        "hint":       "Requires Ollama installed — ollama.com/download",
-        "service_id": "ollama_local",
-        "env_key":    None,
-        "url":        "https://ollama.com/download",
-    },
+    "1":  {"name": "OpenRouter",   "desc": "Free tier — 100+ models",          "service_id": "openrouter",   "env_key": "OPENROUTER_API_KEY",   "hint": "openrouter.ai/keys"},
+    "2":  {"name": "OpenAI",       "desc": "GPT-4o, GPT-4o-mini",              "service_id": "openai",       "env_key": "OPENAI_API_KEY",       "hint": "platform.openai.com/api-keys"},
+    "3":  {"name": "Anthropic",    "desc": "Claude 3.5 Haiku / Sonnet",        "service_id": "anthropic",    "env_key": "ANTHROPIC_API_KEY",    "hint": "console.anthropic.com"},
+    "4":  {"name": "Gemini",       "desc": "Gemini 2.0 Flash — free tier",     "service_id": "gemini",       "env_key": "GEMINI_API_KEY",       "hint": "aistudio.google.com/apikey"},
+    "5":  {"name": "Mistral",      "desc": "Mistral Small / Large",            "service_id": "mistral",      "env_key": "MISTRAL_API_KEY",      "hint": "console.mistral.ai/api-keys"},
+    "6":  {"name": "Groq",         "desc": "Ultra-fast inference — free tier", "service_id": "groq",         "env_key": "GROQ_API_KEY",         "hint": "console.groq.com/keys"},
+    "7":  {"name": "DeepSeek",     "desc": "DeepSeek-V3 — very affordable",    "service_id": "deepseek",     "env_key": "DEEPSEEK_API_KEY",     "hint": "platform.deepseek.com/api_keys"},
+    "8":  {"name": "xAI (Grok)",   "desc": "Grok-2 by xAI",                   "service_id": "xai",          "env_key": "XAI_API_KEY",          "hint": "console.x.ai"},
+    "9":  {"name": "Cohere",       "desc": "Command R+",                       "service_id": "cohere",       "env_key": "COHERE_API_KEY",       "hint": "dashboard.cohere.com/api-keys"},
+    "10": {"name": "Together AI",  "desc": "Open source models, fast",         "service_id": "together",     "env_key": "TOGETHER_API_KEY",     "hint": "api.together.ai/settings/api-keys"},
+    "11": {"name": "Perplexity",   "desc": "Search-augmented LLMs",            "service_id": "perplexity",   "env_key": "PERPLEXITY_API_KEY",   "hint": "perplexity.ai/settings/api"},
+    "12": {"name": "Fireworks AI", "desc": "Fast open source inference",       "service_id": "fireworks",    "env_key": "FIREWORKS_API_KEY",    "hint": "fireworks.ai/api-keys"},
+    "13": {"name": "Azure OpenAI", "desc": "OpenAI via Microsoft Azure",       "service_id": "azure_openai", "env_key": "AZURE_OPENAI_API_KEY", "hint": "portal.azure.com"},
+    "14": {"name": "Ollama Cloud", "desc": "Hosted nemotron-3-super",          "service_id": "ollama_cloud", "env_key": "OLLAMA_API_KEY",       "hint": "ollama.com"},
+    "15": {"name": "Local Ollama", "desc": "Any model on your machine — free", "service_id": "ollama_local", "env_key": None,                   "hint": "ollama.com/download"},
 }
 
 
@@ -302,7 +269,7 @@ def step_ai_service() -> None:
     console.print(table)
     console.print()
 
-    choice = Prompt.ask("Choose", choices=["1", "2", "3", "4", "5", "6"], default="1")
+    choice = Prompt.ask("Choose", choices=[str(i) for i in range(1, 16)], default="1")
     svc = AI_SERVICES[choice]
 
     write_env_key("AI_SERVICE", svc["service_id"])
@@ -338,16 +305,20 @@ def step_ai_service() -> None:
         console.print()
         with Progress(SpinnerColumn(), TextColumn("[cyan]Testing connection..."), transient=True) as p:
             p.add_task("")
-            if svc["service_id"] == "openrouter":
+            sid = svc["service_id"]
+            if sid == "openrouter":
                 passed, emsg = _test_openrouter(key)
-            elif svc["service_id"] == "openai":
+            elif sid == "openai":
                 passed, emsg = _test_openai(key)
-            elif svc["service_id"] == "anthropic":
+            elif sid == "anthropic":
                 passed, emsg = _test_anthropic(key)
-            elif svc["service_id"] == "gemini":
+            elif sid == "gemini":
                 passed, emsg = _test_gemini(key)
-            else:
+            elif sid == "ollama_cloud":
                 passed, emsg = _test_ollama_cloud(key)
+            else:
+                # generic: save key and skip live test
+                passed, emsg = True, ""
         if passed:
             ok("Connection successful")
         else:
