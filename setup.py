@@ -159,6 +159,30 @@ AI_SERVICES = {
         "url":        "https://openrouter.ai/keys",
     },
     "2": {
+        "name":       "OpenAI",
+        "desc":       "GPT-4o, GPT-4o-mini (paid)",
+        "hint":       "Get a key at platform.openai.com/api-keys",
+        "service_id": "openai",
+        "env_key":    "OPENAI_API_KEY",
+        "url":        "https://platform.openai.com/api-keys",
+    },
+    "3": {
+        "name":       "Anthropic",
+        "desc":       "Claude 3.5 Haiku / Sonnet (paid)",
+        "hint":       "Get a key at console.anthropic.com",
+        "service_id": "anthropic",
+        "env_key":    "ANTHROPIC_API_KEY",
+        "url":        "https://console.anthropic.com",
+    },
+    "4": {
+        "name":       "Gemini",
+        "desc":       "Google Gemini 2.0 Flash — free tier",
+        "hint":       "Get a free key at aistudio.google.com/apikey",
+        "service_id": "gemini",
+        "env_key":    "GEMINI_API_KEY",
+        "url":        "https://aistudio.google.com/apikey",
+    },
+    "5": {
         "name":       "Ollama Cloud",
         "desc":       "Hosted nemotron-3-super model",
         "hint":       "Get a key at ollama.com",
@@ -166,9 +190,9 @@ AI_SERVICES = {
         "env_key":    "OLLAMA_API_KEY",
         "url":        "https://ollama.com",
     },
-    "3": {
+    "6": {
         "name":       "Local Ollama",
-        "desc":       "Run any model on your machine",
+        "desc":       "Run any model on your machine — free",
         "hint":       "Requires Ollama installed — ollama.com/download",
         "service_id": "ollama_local",
         "env_key":    None,
@@ -226,6 +250,45 @@ def _test_ollama_local(model: str) -> tuple[bool, str]:
         return False, str(e)[:100]
 
 
+def _test_openai(key: str) -> tuple[bool, str]:
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=key)
+        client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=5,
+        )
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:100]
+
+
+def _test_anthropic(key: str) -> tuple[bool, str]:
+    try:
+        import anthropic as sdk
+        client = sdk.Anthropic(api_key=key)
+        client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=5,
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:100]
+
+
+def _test_gemini(key: str) -> tuple[bool, str]:
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        model.generate_content("Hi", generation_config={"max_output_tokens": 5})
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:100]
+
+
 def step_ai_service() -> None:
     console.clear()
     header("Step 1 / 4 — AI Service", "Choose which AI powers the agent")
@@ -239,7 +302,7 @@ def step_ai_service() -> None:
     console.print(table)
     console.print()
 
-    choice = Prompt.ask("Choose", choices=["1", "2", "3"], default="1")
+    choice = Prompt.ask("Choose", choices=["1", "2", "3", "4", "5", "6"], default="1")
     svc = AI_SERVICES[choice]
 
     write_env_key("AI_SERVICE", svc["service_id"])
@@ -277,6 +340,12 @@ def step_ai_service() -> None:
             p.add_task("")
             if svc["service_id"] == "openrouter":
                 passed, emsg = _test_openrouter(key)
+            elif svc["service_id"] == "openai":
+                passed, emsg = _test_openai(key)
+            elif svc["service_id"] == "anthropic":
+                passed, emsg = _test_anthropic(key)
+            elif svc["service_id"] == "gemini":
+                passed, emsg = _test_gemini(key)
             else:
                 passed, emsg = _test_ollama_cloud(key)
         if passed:

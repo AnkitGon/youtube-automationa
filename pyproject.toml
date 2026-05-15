@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "youtube-ai-agent"
+name = "tube-assistant"
 version = "1.0.0"
 description = "Autonomous YouTube content pipeline — script → TTS → clips → montage → upload"
 readme = "README.md"
@@ -23,6 +23,9 @@ dependencies = [
     "ddgs>=9.0.0",
     "gTTS>=2.5.0",
     "rich>=13.0.0",
+    "openai>=1.30.0",
+    "anthropic>=0.25.0",
+    "google-generativeai>=0.7.0",
 ]
 
 [project.scripts]
