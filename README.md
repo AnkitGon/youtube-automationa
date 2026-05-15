@@ -55,8 +55,8 @@ TubeAssistant eliminates every step. It runs 24/7, reads your channel analytics,
 ## Quick Start
 
 ```bash
-pip install uv                                                   # fast installer (one-time)
-uv pip install git+https://github.com/metiu1/tube-assistant.git
+pip install uv                                                    # fast installer (one-time)
+uv tool install git+https://github.com/metiu1/tube-assistant.git
 youtube-ai-agent onboard   # guided setup wizard (~5 min)
 youtube-ai-agent start     # daemon starts, first video tonight
 ```
@@ -105,8 +105,8 @@ git clone https://github.com/metiu1/tube-assistant.git
 cd tube-assistant
 
 # Install (uv is ~10x faster than pip)
-pip install uv         # one-time
-uv pip install -e .    # or: installa.bat on Windows
+pip install uv              # one-time
+uv tool install -e .        # or: installa.bat on Windows
 
 # Setup (one-time wizard)
 youtube-ai-agent onboard

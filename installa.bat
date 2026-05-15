@@ -8,11 +8,11 @@ REM Check if uv is available, fall back to pip
 where uv >nul 2>&1
 if %ERRORLEVEL% == 0 (
     echo Using uv ^(fast installer^)...
-    uv pip install -e .
+    uv tool install -e .
 ) else (
     echo uv not found — installing it first...
     pip install uv -q
-    uv pip install -e .
+    uv tool install -e .
 )
 
 echo.
