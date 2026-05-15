@@ -57,8 +57,7 @@ TubeAssistant eliminates every step. It runs 24/7, reads your channel analytics,
 ```bash
 pip install uv                                                    # fast installer (one-time)
 uv tool install git+https://github.com/metiu1/tube-assistant.git
-youtube-ai-agent onboard   # guided setup wizard (~5 min)
-youtube-ai-agent start     # daemon starts, first video tonight
+tube-assistant             # interactive menu — pick Setup wizard first
 ```
 
 That's it. The wizard handles API keys, Google OAuth, Telegram bot, and channel preferences.
@@ -163,11 +162,12 @@ Natural language works too:
 ## CLI
 
 ```bash
-youtube-ai-agent onboard    # First-time setup wizard
-youtube-ai-agent start      # Start the 24/7 daemon
-youtube-ai-agent run        # One-shot pipeline (one video now, no scheduler)
-youtube-ai-agent status     # Show workspace and config
-youtube-ai-agent workspace  # Print workspace path
+tube-assistant              # interactive TUI menu (recommended)
+tube-assistant onboard      # first-time setup wizard
+tube-assistant start        # start the 24/7 daemon
+tube-assistant run          # one-shot pipeline (one video now)
+tube-assistant status       # show workspace and config
+tube-assistant workspace    # print workspace path
 ```
 
 ---
