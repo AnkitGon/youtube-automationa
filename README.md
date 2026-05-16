@@ -117,10 +117,11 @@ youtube-ai-agent start
 The onboard wizard walks through every step:
 
 ```
-Step 1 — AI Service      OpenRouter / Ollama Cloud / local Ollama
-Step 2 — Pexels API      Free key for stock footage
-Step 3 — Telegram Bot    Token from @BotFather
-Step 4 — Channel setup   Name, niche, goals, style, language
+Step 1 — Agent language  Any language your Telegram assistant will speak
+Step 2 — AI Service      OpenRouter / Ollama Cloud / local Ollama
+Step 3 — Pexels API      Free key for stock footage
+Step 4 — Telegram Bot    Token from @BotFather
+Step 5 — Channel setup   Name, niche, goals, style, language
                           → Send your Google credentials.json
 ```
 
