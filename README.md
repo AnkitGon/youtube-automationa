@@ -151,11 +151,28 @@ Natural language works too:
 
 ## AI Services
 
-| Service | Cost | Config |
-|---|---|---|
-| **OpenRouter** | Free tier available | `AI_SERVICE=openrouter` + `OPENROUTER_API_KEY` |
-| **Ollama Cloud** | Paid | `AI_SERVICE=ollama_cloud` + `OLLAMA_API_KEY` |
-| **Local Ollama** | Free (your hardware) | `AI_SERVICE=ollama_local` + `OLLAMA_LOCAL_MODEL` |
+15 providers supported. Set `AI_SERVICE` in `.env` to switch at any time.
+
+| Provider | Cost | `AI_SERVICE` value | Key |
+|---|---|---|---|
+| **OpenRouter** | Free tier | `openrouter` | `OPENROUTER_API_KEY` |
+| **OpenAI** | Paid | `openai` | `OPENAI_API_KEY` |
+| **Anthropic** | Paid | `anthropic` | `ANTHROPIC_API_KEY` |
+| **Gemini** | Free tier | `gemini` | `GEMINI_API_KEY` |
+| **Mistral** | Paid | `mistral` | `MISTRAL_API_KEY` |
+| **Groq** | Free tier | `groq` | `GROQ_API_KEY` |
+| **DeepSeek** | Very cheap | `deepseek` | `DEEPSEEK_API_KEY` |
+| **xAI (Grok)** | Paid | `xai` | `XAI_API_KEY` |
+| **Cohere** | Paid | `cohere` | `COHERE_API_KEY` |
+| **Together AI** | Paid | `together` | `TOGETHER_API_KEY` |
+| **Perplexity** | Paid | `perplexity` | `PERPLEXITY_API_KEY` |
+| **Fireworks AI** | Paid | `fireworks` | `FIREWORKS_API_KEY` |
+| **Azure OpenAI** | Paid | `azure_openai` | `AZURE_OPENAI_API_KEY` |
+| **Ollama Cloud** | Paid | `ollama_cloud` | `OLLAMA_API_KEY` |
+| **Local Ollama** | Free | `ollama_local` | — |
+
+Every model is overridable via env (e.g. `OPENAI_MODEL=gpt-4o`, `GROQ_MODEL=mixtral-8x7b-32768`).  
+See `.env.example` for the full list of variables.
 
 ---
 
