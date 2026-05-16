@@ -153,17 +153,12 @@ def step_agent_language() -> None:
     console.clear()
     header("Step 1 / 5 — Agent Language", "What language should your Telegram assistant speak?")
 
-    table = Table(show_header=False, border_style="dim", padding=(0, 2))
-    table.add_column("Num", style="bold cyan", width=4)
-    table.add_column("Lang", style="bold white")
-    table.add_column("Desc", style="dim")
-    table.add_row("1", "English",  "Bot replies in English")
-    table.add_row("2", "Italiano", "Il bot risponde in italiano")
-    console.print(table)
+    console.print("  [dim]Type any language: English, Italiano, Español, Français, Deutsch…[/]")
     console.print()
 
-    choice = Prompt.ask("  Choose language", choices=["1", "2"], default="1")
-    lang = "english" if choice == "1" else "italian"
+    lang = Prompt.ask("  Language", default="English").strip()
+    if not lang:
+        lang = "English"
     write_env_key("AGENT_LANGUAGE", lang)
     console.print()
     ok(f"Agent language set to [bold]{lang}[/]")
