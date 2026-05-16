@@ -147,6 +147,28 @@ def warn(msg: str): console.print(f"  [bold yellow]⚠[/]  {msg}")
 def err(msg: str):  console.print(f"  [bold red]✗[/]  {msg}")
 
 
+# ── step 0 — agent language ───────────────────────────────────────────────────
+
+def step_agent_language() -> None:
+    console.clear()
+    header("Step 1 / 5 — Agent Language", "What language should your Telegram assistant speak?")
+
+    table = Table(show_header=False, border_style="dim", padding=(0, 2))
+    table.add_column("Num", style="bold cyan", width=4)
+    table.add_column("Lang", style="bold white")
+    table.add_column("Desc", style="dim")
+    table.add_row("1", "English",  "Bot replies in English")
+    table.add_row("2", "Italiano", "Il bot risponde in italiano")
+    console.print(table)
+    console.print()
+
+    choice = Prompt.ask("  Choose language", choices=["1", "2"], default="1")
+    lang = "english" if choice == "1" else "italian"
+    write_env_key("AGENT_LANGUAGE", lang)
+    console.print()
+    ok(f"Agent language set to [bold]{lang}[/]")
+
+
 # ── step 1 — AI service ───────────────────────────────────────────────────────
 
 AI_SERVICES = {
@@ -258,7 +280,7 @@ def _test_gemini(key: str) -> tuple[bool, str]:
 
 def step_ai_service() -> None:
     console.clear()
-    header("Step 1 / 4 — AI Service", "Choose which AI powers the agent")
+    header("Step 2 / 5 — AI Service", "Choose which AI powers the agent")
 
     table = Table(show_header=True, header_style="bold cyan", border_style="dim")
     table.add_column("#", width=3)
@@ -335,7 +357,7 @@ def step_ai_service() -> None:
 
 def step_pexels() -> None:
     console.clear()
-    header("Step 2 / 4 — Pexels API", "Free stock video clips for your videos")
+    header("Step 3 / 5 — Pexels API", "Free stock video clips for your videos")
     info("Create a free account and get a key at: [link]https://www.pexels.com/api/[/]")
     console.print()
     key = Prompt.ask("[bold]Pexels API key[/]")
@@ -350,7 +372,7 @@ def step_pexels() -> None:
 
 def step_telegram_token() -> str:
     console.clear()
-    header("Step 3 / 4 — Telegram Bot", "Your live control interface")
+    header("Step 4 / 5 — Telegram Bot", "Your live control interface")
 
     console.print("  [bold]How to create a bot:[/]")
     console.print("  1. Open Telegram and start a chat with [cyan]@BotFather[/]")
@@ -553,7 +575,7 @@ async def run_onboarding(token: str) -> dict:
 
 def step_telegram_onboarding(token: str) -> dict:
     console.clear()
-    header("Step 4 / 4 — Channel Setup via Telegram", "Your AI agent will interview you")
+    header("Step 5 / 5 — Channel Setup via Telegram", "Your AI agent will interview you")
 
     console.print(Panel(
         "[bold cyan]Open your Telegram bot and send /start[/]\n\n"
@@ -624,7 +646,7 @@ def main() -> None:
             "[bold cyan]YouTube AI Agent[/]\n"
             "[bold]Setup Wizard[/]\n\n"
             "[dim]Autonomous video pipeline: script → TTS → clips → montage → upload[/]\n\n"
-            "[dim]This wizard configures everything in 4 steps.[/]"
+            "[dim]This wizard configures everything in 5 steps.[/]"
         ),
         border_style="cyan",
         padding=(2, 8),
@@ -644,6 +666,7 @@ def main() -> None:
         sys.exit(0)
 
     # ── steps ────────────────────────────────────────────────────────────────
+    step_agent_language()
     step_ai_service()
     step_pexels()
     token = step_telegram_token()
