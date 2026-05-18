@@ -60,7 +60,10 @@ def run():
     print(f"  Saved: {VIDEO_PATH}")
 
     print("\n=== [E] Generating thumbnail ===")
-    genera_thumbnail(content["title"], THUMB_PATH)
+    genera_thumbnail(
+        content["title"], THUMB_PATH,
+        thumbnail_description=content.get("thumbnail_description"),
+    )
     print(f"  Saved: {THUMB_PATH}")
 
     print("\n=== [F] Publishing to YouTube ===")

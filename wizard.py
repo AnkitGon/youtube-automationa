@@ -151,7 +151,7 @@ def err(msg: str):  console.print(f"  [bold red]✗[/]  {msg}")
 
 def step_agent_language() -> None:
     console.clear()
-    header("Step 1 / 5 — Agent Language", "What language should your Telegram assistant speak?")
+    header("Step 1 / 6 — Agent Language", "What language should your Telegram assistant speak?")
 
     console.print("  [dim]Type any language: English, Italiano, Español, Français, Deutsch…[/]")
     console.print()
@@ -275,7 +275,7 @@ def _test_gemini(key: str) -> tuple[bool, str]:
 
 def step_ai_service() -> None:
     console.clear()
-    header("Step 2 / 5 — AI Service", "Choose which AI powers the agent")
+    header("Step 2 / 6 — AI Service", "Choose which AI powers the agent")
 
     table = Table(show_header=True, header_style="bold cyan", border_style="dim")
     table.add_column("#", width=3)
@@ -348,11 +348,106 @@ def step_ai_service() -> None:
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
 
 
-# ── step 2 — pexels ───────────────────────────────────────────────────────────
+# ── step 2b — image provider ──────────────────────────────────────────────────
+
+IMAGE_PROVIDERS = {
+    "1": {
+        "name": "HuggingFace FLUX.1-dev",
+        "desc": "Best quality — FLUX.1-dev, needs free HF account",
+        "provider_id": "huggingface",
+        "env_key": "HF_API_KEY",
+        "hint": "huggingface.co/settings/tokens",
+    },
+    "2": {
+        "name": "OpenRouter",
+        "desc": "Uses your existing OpenRouter key — FLUX.1-schnell (free tier)",
+        "provider_id": "openrouter",
+        "env_key": "OPENROUTER_API_KEY",
+        "hint": None,
+    },
+    "3": {
+        "name": "No AI (Pollinations)",
+        "desc": "Free, no API key — lower quality thumbnails with text overlay",
+        "provider_id": "pollinations",
+        "env_key": None,
+        "hint": None,
+    },
+}
+
+
+def _test_hf_key(key: str) -> tuple[bool, str]:
+    import requests
+    try:
+        r = requests.get(
+            "https://huggingface.co/api/whoami",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:100]
+
+
+def step_image_provider() -> None:
+    console.clear()
+    header("Step 3 / 6 — Thumbnail Image Generation",
+           "Choose how to generate your video thumbnails")
+
+    console.print("  [bold]Available providers:[/]\n")
+    for num, p in IMAGE_PROVIDERS.items():
+        console.print(f"  [cyan]{num}[/]  [bold]{p['name']}[/]  [dim]— {p['desc']}[/]")
+    console.print()
+
+    choice = Prompt.ask("  Choose provider", choices=list(IMAGE_PROVIDERS.keys()), default="1")
+    prov = IMAGE_PROVIDERS[choice]
+    write_env_key("IMAGE_PROVIDER", prov["provider_id"])
+    console.print()
+
+    if prov["provider_id"] == "huggingface":
+        existing = dict(dotenv_values(ENV_FILE)).get("HF_API_KEY", "")
+        if existing:
+            info("HuggingFace key already set — skipping")
+        else:
+            info(f"Get a free token at: {prov['hint']}")
+            console.print("  [dim](Use a token with 'read' or 'write' scope)[/]")
+            console.print()
+            key = Prompt.ask("[bold]HuggingFace API token[/]", password=True)
+            write_env_key("HF_API_KEY", key)
+            console.print()
+            with Progress(SpinnerColumn(), TextColumn("[cyan]Verifying token..."), transient=True) as p_:
+                p_.add_task("")
+                passed, emsg = _test_hf_key(key)
+            if passed:
+                ok("HuggingFace token valid")
+            else:
+                warn(f"Could not verify ({emsg})")
+                if not Confirm.ask("  Continue anyway?", default=True):
+                    step_image_provider()
+                    return
+
+    elif prov["provider_id"] == "openrouter":
+        existing = dict(dotenv_values(ENV_FILE)).get("OPENROUTER_API_KEY", "")
+        if existing:
+            ok("Will use existing OpenRouter key for image generation")
+        else:
+            warn("No OpenRouter key found. Set it in Step 2 (AI Service) or add it manually to .env")
+
+    else:
+        info("Pollinations selected — no API key needed")
+        info("Thumbnails will have text overlay added automatically")
+
+    console.print()
+    ok(f"Image provider set to [bold]{prov['name']}[/]")
+    console.print()
+    Prompt.ask("[dim]Press Enter to continue[/]", default="")
+
+
+# ── step 2c — pexels ──────────────────────────────────────────────────────────
 
 def step_pexels() -> None:
     console.clear()
-    header("Step 3 / 5 — Pexels API", "Free stock video clips for your videos")
+    header("Step 4 / 6 — Pexels API", "Free stock video clips for your videos")
     info("Create a free account and get a key at: [link]https://www.pexels.com/api/[/]")
     console.print()
     key = Prompt.ask("[bold]Pexels API key[/]")
@@ -367,7 +462,7 @@ def step_pexels() -> None:
 
 def step_telegram_token() -> str:
     console.clear()
-    header("Step 4 / 5 — Telegram Bot", "Your live control interface")
+    header("Step 5 / 6 — Telegram Bot", "Your live control interface")
 
     console.print("  [bold]How to create a bot:[/]")
     console.print("  1. Open Telegram and start a chat with [cyan]@BotFather[/]")
@@ -570,7 +665,7 @@ async def run_onboarding(token: str) -> dict:
 
 def step_telegram_onboarding(token: str) -> dict:
     console.clear()
-    header("Step 5 / 5 — Channel Setup via Telegram", "Your AI agent will interview you")
+    header("Step 6 / 6 — Channel Setup via Telegram", "Your AI agent will interview you")
 
     console.print(Panel(
         "[bold cyan]Open your Telegram bot and send /start[/]\n\n"
@@ -663,6 +758,7 @@ def main() -> None:
     # ── steps ────────────────────────────────────────────────────────────────
     step_agent_language()
     step_ai_service()
+    step_image_provider()
     step_pexels()
     token = step_telegram_token()
     data  = step_telegram_onboarding(token)
@@ -687,11 +783,13 @@ def main() -> None:
     table = Table(show_header=False, border_style="dim", padding=(0, 2))
     table.add_column("Key", style="dim")
     table.add_column("Value", style="cyan")
-    table.add_row("AI Service",   dict(dotenv_values(ENV_FILE)).get("AI_SERVICE", "—"))
-    table.add_row("Language",     data.get("language", "english"))
-    table.add_row("Channel",      data.get("channel_name", "—"))
-    table.add_row("Credentials",  "✓ saved" if Path(CREDS_FILE).exists() else "✗ not found")
-    table.add_row("Telegram",     f"chat_id {data.get('chat_id', '—')}")
+    env_vals = dict(dotenv_values(ENV_FILE))
+    table.add_row("AI Service",      env_vals.get("AI_SERVICE", "—"))
+    table.add_row("Image Provider",  env_vals.get("IMAGE_PROVIDER", "pollinations"))
+    table.add_row("Language",        data.get("language", "english"))
+    table.add_row("Channel",         data.get("channel_name", "—"))
+    table.add_row("Credentials",     "✓ saved" if Path(CREDS_FILE).exists() else "✗ not found")
+    table.add_row("Telegram",        f"chat_id {data.get('chat_id', '—')}")
     console.print(table)
     console.print()
 

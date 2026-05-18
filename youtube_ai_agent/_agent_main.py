@@ -144,7 +144,10 @@ def run_pipeline(state: dict) -> None:
 
     _log("🖼️ [6/7] Thumbnail — generazione con AI...")
     notify_step("thumbnail", "Genero la thumbnail con AI...")
-    genera_thumbnail(content["title"], THUMB_PATH)
+    genera_thumbnail(
+        content["title"], THUMB_PATH,
+        thumbnail_description=content.get("thumbnail_description"),
+    )
 
     _log("📤 [7/7] Upload — caricamento su YouTube...")
     notify_step("upload", "Upload su YouTube in corso...")

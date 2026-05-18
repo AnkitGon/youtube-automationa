@@ -31,7 +31,8 @@ Reply ONLY with valid JSON, exact structure:
     "AI neural network visualization",
     "futuristic city technology",
     "scientist working computer"
-  ]
+  ],
+  "thumbnail_description": "Ultra-detailed image generation prompt for FLUX.1 diffusion model. Must be ONE paragraph, 80-120 words. Describe: exact scene composition, foreground subject with precise visual details (clothing, pose, expression, materials), background environment (architecture, lighting, atmosphere, depth), color palette (specific hues, contrast, saturation), lighting setup (direction, quality, color temperature, shadows), cinematic style, camera angle, lens feel. Professional YouTube thumbnail aesthetic, bold visual impact, 16:9 landscape orientation. NO text, logos, watermarks, or words of any kind — pure visual only. Example depth: 'Close-up photorealistic render of a humanoid robot with brushed titanium face and glowing cyan eye lenses, emerging from a dark server room filled with blue neon-lit racks, volumetric fog drifting at ankle level, dramatic rim lighting from the left casting sharp shadows, deep blacks and electric blue highlights, ultra-sharp detail, 85mm portrait lens perspective, cinematic anamorphic flare.'"
 }}
 
 Rules:
@@ -39,6 +40,7 @@ Rules:
 - tags: 12-15 relevant tags
 - script: exactly 1100-1200 words, engaging pace, no bullet points
 - video_keywords: 12-18 unique English phrases describing stock video scenes (2-4 words each, concrete and visual)
+- thumbnail_description: ultra-detailed FLUX.1 prompt as described above, always present
 """
 
 

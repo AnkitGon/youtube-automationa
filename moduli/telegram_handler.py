@@ -60,6 +60,8 @@ REAL ACTIONS (tags executed automatically — ALWAYS use them when requested):
 
 CRITICAL RULE ON SEARCHES: when the user asks for news or recent information, use the [WEB SEARCH] context already provided and answer with that data. Do NOT add topics to the queue, do NOT use [AGGIUNGI_TOPIC] or [FORZA_ORA].
 
+CRITICAL RULE ON PREFERENCES/SETTINGS: when the user changes a setting or style (thumbnail style, clip style, pace, language, volume, topics to avoid, etc.) use ONLY [SETPREF: key=value]. NEVER add [FORZA_ORA], [AGGIUNGI_TOPIC] or [PRIORITA_TOPIC] — changing a preference does NOT mean they want a new video now.
+
 CRITICAL RULE ON TAGS: only use the tags listed above. Do NOT invent tags — they won't be executed. If no suitable tag exists, perform the action with words.
 
 WHEN TO USE TAGS:
@@ -145,6 +147,22 @@ def _is_preference_list_request(text: str) -> bool:
     return "preferenz" in t and any(k in t for k in ("mostra", "lista", "vedere", "vedi", "quali", "attuali", "dimmi"))
 
 
+_PREF_KEYWORDS = (
+    "stile", "style", "thumbnail", "copertina", "ritmo", "tono", "lingua", "language",
+    "clip", "montaggio", "volume", "musica", "durata", "argomenti", "topic",
+    "evita", "preferisci", "preferenza", "impostazione", "setting",
+    "cambia", "modifica", "imposta", "setta", "metti", "usa",
+    "change", "set", "update", "modify", "use",
+)
+
+def _is_pref_only_request(text: str) -> bool:
+    """Richiesta di cambio impostazione senza intenzione di creare un video."""
+    t = text.lower()
+    has_pref = any(k in t for k in _PREF_KEYWORDS)
+    has_action = any(k in t for k in _ACTION_KEYWORDS)
+    return has_pref and not has_action
+
+
 def _format_preference_updates(modifiche: dict) -> str:
     lines = ["✅ Preferenze aggiornate:"]
     for chiave, valore in modifiche.items():
@@ -211,7 +229,7 @@ def _ask_ai(user_text: str, history: list, state: dict) -> tuple[str, list]:
     return reply, new_history
 
 
-def _execute_actions(reply: str, state: dict, is_search: bool = False) -> tuple[str, list, list, list]:
+def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_only: bool = False) -> tuple[str, list, list, list]:
     """Esegue i tag azione presenti nella risposta AI."""
     import re
     from moduli.memoria import aggiungi as mem_aggiungi, _save as mem_save, _load as mem_load
@@ -410,8 +428,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False) -> tuple[
             api_results.append(f"❌ Errore thumbnail: {e}")
         return ""
 
-    if is_search:
-        # rimuovi silenziosamente i tag topic — utente voleva solo info
+    if is_search or is_pref_only:
+        # rimuovi silenziosamente i tag pipeline — utente voleva solo info o cambiare setting
         clean = re.sub(r'\[AGGIUNGI_TOPIC:\s*[^\]]+\]', '', reply)
         clean = re.sub(r'\[PRIORITA_TOPIC:\s*[^\]]+\]', '', clean)
         clean = re.sub(r'\[FORZA_ORA:\s*[^\]]+\]', '', clean)
@@ -1108,7 +1126,11 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     reply, new_history = await future
 
     # esegui azioni embedded nella risposta
-    clean_reply, added_topics, saved_memories, removed_memories, api_results = _execute_actions(reply, state, is_search=_needs_web_search(text))
+    clean_reply, added_topics, saved_memories, removed_memories, api_results = _execute_actions(
+        reply, state,
+        is_search=_needs_web_search(text),
+        is_pref_only=_is_pref_only_request(text),
+    )
 
     _save_history(state, chat_id, new_history)
     _save_state(state)
