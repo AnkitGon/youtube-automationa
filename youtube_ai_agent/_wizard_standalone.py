@@ -616,10 +616,7 @@ def main() -> None:
         Align.center(
             "[bold green]✓  Setup Complete![/]\n\n"
             "[dim]All settings saved.[/]\n\n"
-            "Start the agent:\n"
-            "[bold cyan]python agent.py[/]\n\n"
-            "Or in background:\n"
-            "[bold cyan].\\avvia_agente.bat[/]"
+            "[bold cyan]Starting the agent now...[/]"
         ),
         border_style="green",
         padding=(2, 8),
@@ -629,13 +626,18 @@ def main() -> None:
     table = Table(show_header=False, border_style="dim", padding=(0, 2))
     table.add_column("Key", style="dim")
     table.add_column("Value", style="cyan")
-    table.add_row("AI Service",   dict(dotenv_values(ENV_FILE)).get("AI_SERVICE", "—"))
-    table.add_row("Language",     data.get("language", "english"))
-    table.add_row("Channel",      data.get("channel_name", "—"))
-    table.add_row("Credentials",  "✓ saved" if Path(CREDS_FILE).exists() else "✗ not found")
-    table.add_row("Telegram",     f"chat_id {data.get('chat_id', '—')}")
+    env_vals = dict(dotenv_values(ENV_FILE))
+    table.add_row("AI Service",      env_vals.get("AI_SERVICE", "—"))
+    table.add_row("Image Provider",  env_vals.get("IMAGE_PROVIDER", "pollinations"))
+    table.add_row("Language",        data.get("language", "english"))
+    table.add_row("Channel",         data.get("channel_name", "—"))
+    table.add_row("Credentials",     "✓ saved" if Path(CREDS_FILE).exists() else "✗ not found")
+    table.add_row("Telegram",        f"chat_id {data.get('chat_id', '—')}")
     console.print(table)
     console.print()
+
+    agent_script = Path(__file__).parent.parent / "agent.py"
+    os.execv(sys.executable, [sys.executable, str(agent_script)])
 
 
 if __name__ == "__main__":

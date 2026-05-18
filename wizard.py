@@ -770,10 +770,7 @@ def main() -> None:
         Align.center(
             "[bold green]✓  Setup Complete![/]\n\n"
             "[dim]All settings saved.[/]\n\n"
-            "Start the agent:\n"
-            "[bold cyan]python agent.py[/]\n\n"
-            "Or in background:\n"
-            "[bold cyan].\\avvia_agente.bat[/]"
+            "[bold cyan]Starting the agent now...[/]"
         ),
         border_style="green",
         padding=(2, 8),
@@ -792,6 +789,13 @@ def main() -> None:
     table.add_row("Telegram",        f"chat_id {data.get('chat_id', '—')}")
     console.print(table)
     console.print()
+
+    # avvia l'agente automaticamente
+    import subprocess
+    agent_script = Path(__file__).parent / "agent.py"
+    console.print("  [dim]Avvio agent.py...[/]")
+    console.print()
+    os.execv(sys.executable, [sys.executable, str(agent_script)])
 
 
 if __name__ == "__main__":
