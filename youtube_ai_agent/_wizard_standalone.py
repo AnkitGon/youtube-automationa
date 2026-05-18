@@ -285,14 +285,27 @@ IMAGE_PROVIDERS = {
 
 def _test_hf_key(key):
     import requests
+    if not key.startswith("hf_") or len(key) < 20:
+        return False, "Token format invalid (should start with hf_)"
     try:
-        if not key.startswith("hf_") or len(key) < 20:
-            return False, "Token format invalid (should start with hf_)"
-        r = requests.get(
-            "https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell",
-            headers={"Authorization": f"Bearer {key}"}, timeout=10)
-        r.raise_for_status(); return True, ""
-    except Exception as e: return False, str(e)[:100]
+        r = requests.post(
+            "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+            headers={"Authorization": f"Bearer {key}"},
+            json={"inputs": "a red circle", "parameters": {"width": 64, "height": 64, "num_inference_steps": 1}},
+            timeout=60,
+        )
+        if r.status_code == 401:
+            return False, "Token non autorizzato (401) — controlla che sia valido"
+        if r.status_code == 403:
+            return False, "Accesso negato (403) — accetta la licenza su huggingface.co/black-forest-labs/FLUX.1-schnell"
+        if r.status_code == 503:
+            return True, ""  # modello in caricamento ma token ok
+        r.raise_for_status()
+        if "image" in r.headers.get("content-type", ""):
+            return True, ""
+        return False, f"Risposta inattesa: {r.status_code}"
+    except Exception as e:
+        return False, str(e)[:120]
 
 
 def step_image_provider() -> None:
