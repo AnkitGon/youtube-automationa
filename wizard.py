@@ -359,8 +359,8 @@ IMAGE_PROVIDERS = {
         "hint": None,
     },
     "2": {
-        "name": "HuggingFace FLUX.1-dev",
-        "desc": "Best quality AI images — free HF account required",
+        "name": "HuggingFace FLUX.1-schnell",
+        "desc": "High quality AI images — free HF account required",
         "provider_id": "huggingface",
         "env_key": "HF_API_KEY",
         "hint": "huggingface.co/settings/tokens",

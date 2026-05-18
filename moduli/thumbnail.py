@@ -9,7 +9,7 @@ THUMB_W, THUMB_H = 1280, 720
 FONT_PATH = "assets/font_bold.ttf"
 SHADOW_OFFSET = 3
 
-HF_API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev"
+HF_API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
 OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images/generations"
 OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-1-schnell"
 
@@ -51,8 +51,8 @@ def _fetch_image_hf(prompt: str) -> Image.Image:
         "parameters": {
             "width": THUMB_W,
             "height": THUMB_H,
-            "num_inference_steps": 28,
-            "guidance_scale": 3.5,
+            "num_inference_steps": 4,
+            "guidance_scale": 0.0,
         },
     }
     r = requests.post(HF_API_URL, headers=headers, json=payload, timeout=180)
