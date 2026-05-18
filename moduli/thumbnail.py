@@ -9,7 +9,7 @@ THUMB_W, THUMB_H = 1280, 720
 FONT_PATH = "assets/font_bold.ttf"
 SHADOW_OFFSET = 3
 
-HF_API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+HF_MODEL = "black-forest-labs/FLUX.1-schnell"
 OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images/generations"
 OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-1-schnell"
 
@@ -44,20 +44,16 @@ def _build_ai_prompt(title: str, mood: str = None, style: str = None,
 
 
 def _fetch_image_hf(prompt: str) -> Image.Image:
+    from huggingface_hub import InferenceClient
     key = os.environ.get("HF_API_KEY", "")
-    headers = {"Authorization": f"Bearer {key}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "width": THUMB_W,
-            "height": THUMB_H,
-            "num_inference_steps": 4,
-            "guidance_scale": 0.0,
-        },
-    }
-    r = requests.post(HF_API_URL, headers=headers, json=payload, timeout=180)
-    r.raise_for_status()
-    return Image.open(BytesIO(r.content)).convert("RGB")
+    client = InferenceClient(token=key)
+    img = client.text_to_image(
+        prompt,
+        model=HF_MODEL,
+        width=THUMB_W,
+        height=THUMB_H,
+    )
+    return img.convert("RGB")
 
 
 def _fetch_image_openrouter(prompt: str) -> Image.Image:

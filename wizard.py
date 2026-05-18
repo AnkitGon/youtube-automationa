@@ -378,26 +378,21 @@ IMAGE_PROVIDERS = {
 def _test_hf_key(key: str) -> tuple[bool, str]:
     import requests
     if not key.startswith("hf_") or len(key) < 20:
-        return False, "Token format invalid (should start with hf_)"
+        return False, "Token non valido. Deve iniziare con 'hf_' — copialo da huggingface.co/settings/tokens"
     try:
-        r = requests.post(
-            "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+        # verifica token tramite API profilo utente
+        r = requests.get(
+            "https://huggingface.co/api/whoami-v2",
             headers={"Authorization": f"Bearer {key}"},
-            json={"inputs": "a red circle", "parameters": {"width": 64, "height": 64, "num_inference_steps": 1}},
-            timeout=60,
+            timeout=10,
         )
         if r.status_code == 401:
-            return False, "Token non valido. Vai su huggingface.co/settings/tokens e copia il token corretto."
-        if r.status_code == 403:
-            return False, "Token valido ma devi accettare la licenza del modello.\nApri questo link e clicca 'Agree': huggingface.co/black-forest-labs/FLUX.1-schnell"
-        if r.status_code == 503:
-            return True, ""  # modello in caricamento, token ok
-        r.raise_for_status()
-        if "image" in r.headers.get("content-type", ""):
-            return True, ""
-        return False, "Risposta inattesa dal server. Riprova tra qualche minuto."
+            return False, "Token non riconosciuto. Vai su huggingface.co/settings/tokens e copia un token valido."
+        if r.status_code in (200, 403):
+            return True, ""  # 403 = token ok ma accesso limitato, comunque valido
+        return False, f"Errore inatteso ({r.status_code}). Riprova tra qualche minuto."
     except Exception as e:
-        return False, str(e)[:120]
+        return False, f"Impossibile contattare HuggingFace: {str(e)[:80]}"
 
 
 def step_image_provider() -> None:
