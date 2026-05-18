@@ -378,8 +378,12 @@ IMAGE_PROVIDERS = {
 def _test_hf_key(key: str) -> tuple[bool, str]:
     import requests
     try:
+        # check token format only — inference API doesn't need whoami scope
+        if not key.startswith("hf_") or len(key) < 20:
+            return False, "Token format invalid (should start with hf_)"
+        # light check: model info endpoint (public, no special scope needed)
         r = requests.get(
-            "https://huggingface.co/api/whoami",
+            "https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell",
             headers={"Authorization": f"Bearer {key}"},
             timeout=10,
         )

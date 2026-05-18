@@ -286,7 +286,10 @@ IMAGE_PROVIDERS = {
 def _test_hf_key(key):
     import requests
     try:
-        r = requests.get("https://huggingface.co/api/whoami",
+        if not key.startswith("hf_") or len(key) < 20:
+            return False, "Token format invalid (should start with hf_)"
+        r = requests.get(
+            "https://huggingface.co/api/models/black-forest-labs/FLUX.1-schnell",
             headers={"Authorization": f"Bearer {key}"}, timeout=10)
         r.raise_for_status(); return True, ""
     except Exception as e: return False, str(e)[:100]
