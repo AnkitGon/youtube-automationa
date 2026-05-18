@@ -295,15 +295,15 @@ def _test_hf_key(key):
             timeout=60,
         )
         if r.status_code == 401:
-            return False, "Token non autorizzato (401) — controlla che sia valido"
+            return False, "Token non valido. Vai su huggingface.co/settings/tokens e copia il token corretto."
         if r.status_code == 403:
-            return False, "Accesso negato (403) — accetta la licenza su huggingface.co/black-forest-labs/FLUX.1-schnell"
+            return False, "Token valido ma devi accettare la licenza del modello.\nApri questo link e clicca 'Agree': huggingface.co/black-forest-labs/FLUX.1-schnell"
         if r.status_code == 503:
-            return True, ""  # modello in caricamento ma token ok
+            return True, ""  # modello in caricamento, token ok
         r.raise_for_status()
         if "image" in r.headers.get("content-type", ""):
             return True, ""
-        return False, f"Risposta inattesa: {r.status_code}"
+        return False, "Risposta inattesa dal server. Riprova tra qualche minuto."
     except Exception as e:
         return False, str(e)[:120]
 
@@ -332,10 +332,12 @@ def step_image_provider() -> None:
             p_.add_task("")
             passed, emsg = _test_hf_key(key)
         if passed:
-            ok("HuggingFace token valid")
+            ok("Token HuggingFace verificato — funziona!")
         else:
-            warn(f"Could not verify ({emsg})")
-            if not Confirm.ask("  Continue anyway?", default=True):
+            console.print()
+            warn(emsg)
+            console.print()
+            if Confirm.ask("  Vuoi scegliere un'altra opzione?", default=False):
                 step_image_provider(); return
     elif prov["provider_id"] == "openrouter":
         existing = dict(dotenv_values(ENV_FILE)).get("OPENROUTER_API_KEY", "")

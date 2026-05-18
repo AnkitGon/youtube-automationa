@@ -387,16 +387,15 @@ def _test_hf_key(key: str) -> tuple[bool, str]:
             timeout=60,
         )
         if r.status_code == 401:
-            return False, "Token non autorizzato (401) — controlla che sia valido"
+            return False, "Token non valido. Vai su huggingface.co/settings/tokens e copia il token corretto."
         if r.status_code == 403:
-            return False, "Accesso negato (403) — accetta la licenza del modello su huggingface.co/black-forest-labs/FLUX.1-schnell"
+            return False, "Token valido ma devi accettare la licenza del modello.\nApri questo link e clicca 'Agree': huggingface.co/black-forest-labs/FLUX.1-schnell"
         if r.status_code == 503:
-            return True, ""  # modello in caricamento ma token ok
+            return True, ""  # modello in caricamento, token ok
         r.raise_for_status()
-        # risposta deve essere immagine
         if "image" in r.headers.get("content-type", ""):
             return True, ""
-        return False, f"Risposta inattesa: {r.status_code}"
+        return False, "Risposta inattesa dal server. Riprova tra qualche minuto."
     except Exception as e:
         return False, str(e)[:120]
 
@@ -430,10 +429,14 @@ def step_image_provider() -> None:
             p_.add_task("")
             passed, emsg = _test_hf_key(key)
         if passed:
-            ok("HuggingFace token valid")
+            ok("Token HuggingFace verificato — funziona!")
         else:
-            warn(f"Could not verify ({emsg})")
-            if not Confirm.ask("  Continue anyway?", default=True):
+            console.print()
+            warn(emsg)
+            console.print()
+            if not Confirm.ask("  Vuoi scegliere un'altra opzione?", default=False):
+                pass  # continua con il token salvato
+            else:
                 step_image_provider()
                 return
 
