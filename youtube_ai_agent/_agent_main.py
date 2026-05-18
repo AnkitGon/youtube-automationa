@@ -4,10 +4,43 @@ Do NOT add load_dotenv() here; the launcher handles it.
 """
 
 import os
+import sys
 import json
 import time
 import traceback
 from datetime import datetime, timezone
+
+
+def _check_env() -> None:
+    missing = []
+    for key, label in [
+        ("TELEGRAM_BOT_TOKEN", "Telegram bot token"),
+        ("TELEGRAM_CHAT_ID",   "Telegram chat ID"),
+        ("AI_SERVICE",         "AI service — run: tube-assistant onboard"),
+        ("PEXELS_API_KEY",     "Pexels API key"),
+    ]:
+        if not os.environ.get(key, "").strip():
+            missing.append(f"  ✗  {key}  ({label})")
+    service = os.environ.get("AI_SERVICE", "")
+    service_keys = {
+        "openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY",
+        "mistral": "MISTRAL_API_KEY", "groq": "GROQ_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY", "xai": "XAI_API_KEY",
+        "cohere": "COHERE_API_KEY", "together": "TOGETHER_API_KEY",
+        "perplexity": "PERPLEXITY_API_KEY", "fireworks": "FIREWORKS_API_KEY",
+        "ollama_cloud": "OLLAMA_API_KEY",
+    }
+    if service in service_keys and not os.environ.get(service_keys[service], "").strip():
+        missing.append(f"  ✗  {service_keys[service]}  (API key for {service})")
+    if missing:
+        print("\n[ERRORE] Variabili mancanti nel .env:")
+        for m in missing:
+            print(m)
+        print("\nEsegui: tube-assistant onboard\n")
+        sys.exit(1)
+
+_check_env()
 
 from moduli.cervello import genera_topic, genera_contenuto
 from moduli.audio import genera_audio
