@@ -465,6 +465,45 @@ def step_pexels() -> None:
 
 # ── step 3 — telegram token ───────────────────────────────────────────────────
 
+_BOT_COMMANDS = [
+    ("start",           "Mostra tutti i comandi"),
+    ("status",          "Stato attuale dell'agente"),
+    ("forza",           "Lancia la pipeline subito"),
+    ("forzaora",        "Pubblica subito senza programmazione"),
+    ("skip",            "Salta il video di oggi"),
+    ("abort",           "Ferma la pipeline in corso"),
+    ("recap",           "Analytics ultimi video"),
+    ("coda",            "Mostra coda topic"),
+    ("topic",           "Aggiungi topic alla coda"),
+    ("deltopic",        "Rimuovi topic dalla coda"),
+    ("orari",           "Programma attuale"),
+    ("prossimi",        "Prossimo run e publish"),
+    ("setvideogiorno",  "Imposta quanti video al giorno"),
+    ("setpubblica",     "Ora/e pubblicazione video (UTC)"),
+    ("preferenze",      "Mostra preferenze video"),
+    ("setpref",         "Modifica una preferenza"),
+    ("canale",          "Info canale YouTube"),
+    ("video",           "Lista ultimi video"),
+    ("commenti",        "Ultimi commenti"),
+    ("memoria",         "Mostra memoria a lungo termine"),
+    ("reset",           "Reset stato agente"),
+]
+
+
+def _register_bot_commands(token: str) -> bool:
+    import requests
+    commands = [{"command": cmd, "description": desc} for cmd, desc in _BOT_COMMANDS]
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/setMyCommands",
+            json={"commands": commands},
+            timeout=10,
+        )
+        return r.json().get("ok", False)
+    except Exception:
+        return False
+
+
 def step_telegram_token() -> str:
     console.clear()
     header("Step 5 / 6 — Telegram Bot", "Your live control interface")
@@ -478,11 +517,19 @@ def step_telegram_token() -> str:
     token = Prompt.ask("[bold]Bot token[/]")
     write_env_key("TELEGRAM_BOT_TOKEN", token)
 
-    # quick verify token format
     if not re.match(r"^\d+:[A-Za-z0-9_-]{35,}$", token):
         warn("That doesn't look like a valid bot token — double-check it.")
 
-    ok("Token saved")
+    with Progress(SpinnerColumn(), TextColumn("[cyan]Registering bot commands..."), transient=True) as p:
+        p.add_task("")
+        registered = _register_bot_commands(token)
+
+    if registered:
+        ok("Token saved — comandi / registrati su Telegram")
+    else:
+        ok("Token saved")
+        warn("Comandi / non registrati — verranno attivati al primo avvio dell'agente")
+
     console.print()
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
     return token
