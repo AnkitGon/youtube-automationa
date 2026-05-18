@@ -352,24 +352,24 @@ def step_ai_service() -> None:
 
 IMAGE_PROVIDERS = {
     "1": {
+        "name": "Free (no API key)",
+        "desc": "Pollinations.ai — free, no account needed, good quality",
+        "provider_id": "pollinations",
+        "env_key": None,
+        "hint": None,
+    },
+    "2": {
         "name": "HuggingFace FLUX.1-dev",
-        "desc": "Best quality — FLUX.1-dev, needs free HF account",
+        "desc": "Best quality AI images — free HF account required",
         "provider_id": "huggingface",
         "env_key": "HF_API_KEY",
         "hint": "huggingface.co/settings/tokens",
     },
-    "2": {
+    "3": {
         "name": "OpenRouter",
-        "desc": "Uses your existing OpenRouter key — FLUX.1-schnell (free tier)",
+        "desc": "Uses your existing OpenRouter key — FLUX.1-schnell",
         "provider_id": "openrouter",
         "env_key": "OPENROUTER_API_KEY",
-        "hint": None,
-    },
-    "3": {
-        "name": "No AI (Pollinations)",
-        "desc": "Free, no API key — lower quality thumbnails with text overlay",
-        "provider_id": "pollinations",
-        "env_key": None,
         "hint": None,
     },
 }
@@ -404,38 +404,33 @@ def step_image_provider() -> None:
     write_env_key("IMAGE_PROVIDER", prov["provider_id"])
     console.print()
 
-    if prov["provider_id"] == "huggingface":
-        existing = dict(dotenv_values(ENV_FILE)).get("HF_API_KEY", "")
-        if existing:
-            info("HuggingFace key already set — skipping")
+    if prov["provider_id"] == "pollinations":
+        info("No API key needed — thumbnails generated automatically")
+
+    elif prov["provider_id"] == "huggingface":
+        info(f"Get a free token at: {prov['hint']}")
+        console.print("  [dim](Create account → Settings → Access Tokens → New token, type: Read)[/]")
+        console.print()
+        key = Prompt.ask("[bold]HuggingFace API token[/]", password=False)
+        write_env_key("HF_API_KEY", key)
+        console.print()
+        with Progress(SpinnerColumn(), TextColumn("[cyan]Verifying token..."), transient=True) as p_:
+            p_.add_task("")
+            passed, emsg = _test_hf_key(key)
+        if passed:
+            ok("HuggingFace token valid")
         else:
-            info(f"Get a free token at: {prov['hint']}")
-            console.print("  [dim](Use a token with 'read' or 'write' scope)[/]")
-            console.print()
-            key = Prompt.ask("[bold]HuggingFace API token[/]", password=False)
-            write_env_key("HF_API_KEY", key)
-            console.print()
-            with Progress(SpinnerColumn(), TextColumn("[cyan]Verifying token..."), transient=True) as p_:
-                p_.add_task("")
-                passed, emsg = _test_hf_key(key)
-            if passed:
-                ok("HuggingFace token valid")
-            else:
-                warn(f"Could not verify ({emsg})")
-                if not Confirm.ask("  Continue anyway?", default=True):
-                    step_image_provider()
-                    return
+            warn(f"Could not verify ({emsg})")
+            if not Confirm.ask("  Continue anyway?", default=True):
+                step_image_provider()
+                return
 
     elif prov["provider_id"] == "openrouter":
         existing = dict(dotenv_values(ENV_FILE)).get("OPENROUTER_API_KEY", "")
         if existing:
             ok("Will use existing OpenRouter key for image generation")
         else:
-            warn("No OpenRouter key found. Set it in Step 2 (AI Service) or add it manually to .env")
-
-    else:
-        info("Pollinations selected — no API key needed")
-        info("Thumbnails will have text overlay added automatically")
+            warn("No OpenRouter key found — set it in Step 2 (AI Service) or add manually to .env")
 
     console.print()
     ok(f"Image provider set to [bold]{prov['name']}[/]")

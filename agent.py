@@ -18,6 +18,50 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── env validation ────────────────────────────────────────────────────────────
+def _check_env() -> None:
+    missing = []
+    required = {
+        "TELEGRAM_BOT_TOKEN": "Telegram bot token",
+        "TELEGRAM_CHAT_ID":   "Telegram chat ID",
+        "AI_SERVICE":         "AI service (run the wizard: python wizard.py)",
+        "PEXELS_API_KEY":     "Pexels API key",
+    }
+    for key, label in required.items():
+        if not os.environ.get(key, "").strip():
+            missing.append(f"  ✗  {key}  ({label})")
+
+    service = os.environ.get("AI_SERVICE", "")
+    service_keys = {
+        "openrouter":   "OPENROUTER_API_KEY",
+        "openai":       "OPENAI_API_KEY",
+        "anthropic":    "ANTHROPIC_API_KEY",
+        "gemini":       "GEMINI_API_KEY",
+        "mistral":      "MISTRAL_API_KEY",
+        "groq":         "GROQ_API_KEY",
+        "deepseek":     "DEEPSEEK_API_KEY",
+        "xai":          "XAI_API_KEY",
+        "cohere":       "COHERE_API_KEY",
+        "together":     "TOGETHER_API_KEY",
+        "perplexity":   "PERPLEXITY_API_KEY",
+        "fireworks":    "FIREWORKS_API_KEY",
+        "ollama_cloud": "OLLAMA_API_KEY",
+    }
+    if service in service_keys:
+        key = service_keys[service]
+        if not os.environ.get(key, "").strip():
+            missing.append(f"  ✗  {key}  (API key for {service})")
+
+    if missing:
+        print("\n[ERRORE] Variabili mancanti nel .env:")
+        for m in missing:
+            print(m)
+        print("\nEsegui il wizard per configurare tutto: python wizard.py\n")
+        sys.exit(1)
+
+import sys
+_check_env()
+
 from moduli.cervello import genera_topic, genera_contenuto
 from moduli.audio import genera_audio
 from moduli.asset import scarica_clip
