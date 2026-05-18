@@ -61,6 +61,7 @@ _MENU_ITEMS = [
     ("Start daemon",   "start"),
     ("One-shot video", "run"),
     ("Setup wizard",   "onboard"),
+    ("Update",         "update"),
     ("Status",         "status"),
     ("Quit",           None),
 ]
@@ -215,6 +216,22 @@ def cmd_run() -> None:
     sys.exit(_launch(workspace, "main"))
 
 
+def cmd_update() -> None:
+    import subprocess
+    print("\n  Aggiornamento in corso...\n")
+    result = subprocess.run(
+        ["uv", "tool", "install", "--force",
+         "git+https://github.com/metiu1/tube-assistant.git"],
+        text=True,
+    )
+    if result.returncode == 0:
+        print("\n  ✓ Aggiornamento completato. Riavvia con: tube-assistant\n")
+    else:
+        print("\n  ✗ Aggiornamento fallito. Riprova manualmente:\n")
+        print("    uv tool install --force git+https://github.com/metiu1/tube-assistant.git\n")
+    sys.exit(0)
+
+
 def cmd_status() -> None:
     workspace = get_workspace()
     _print_status(workspace)
@@ -230,6 +247,7 @@ _COMMANDS = {
     "onboard":   cmd_onboard,
     "start":     cmd_start,
     "run":       cmd_run,
+    "update":    cmd_update,
     "status":    cmd_status,
     "workspace": cmd_workspace,
 }
