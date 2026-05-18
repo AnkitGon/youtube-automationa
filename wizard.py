@@ -317,7 +317,7 @@ def step_ai_service() -> None:
     else:
         console.print()
         info(svc["hint"])
-        key = Prompt.ask(f"[bold]{svc['name']} API key[/]", password=True)
+        key = Prompt.ask(f"[bold]{svc['name']} API key[/]", password=False)
         write_env_key(svc["env_key"], key)
         console.print()
         with Progress(SpinnerColumn(), TextColumn("[cyan]Testing connection..."), transient=True) as p:
@@ -412,7 +412,7 @@ def step_image_provider() -> None:
             info(f"Get a free token at: {prov['hint']}")
             console.print("  [dim](Use a token with 'read' or 'write' scope)[/]")
             console.print()
-            key = Prompt.ask("[bold]HuggingFace API token[/]", password=True)
+            key = Prompt.ask("[bold]HuggingFace API token[/]", password=False)
             write_env_key("HF_API_KEY", key)
             console.print()
             with Progress(SpinnerColumn(), TextColumn("[cyan]Verifying token..."), transient=True) as p_:
