@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TubeAssistant — AI Agent for YouTube</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+
+  :root {
+    --red: #ff0000;
+    --red2: #cc0000;
+    --cyan: #00d4ff;
+    --green: #00ff88;
+    --bg: #0a0a0a;
+    --bg2: #111;
+    --bg3: #181818;
+    --text: #f0f0f0;
+    --dim: #888;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+
+  /* ── HERO ── */
+  #hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: 60px 20px;
+  }
+
+  #hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 40%, rgba(255,0,0,0.12) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 20% 80%, rgba(0,212,255,0.06) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+  }
+
+  .logo-ring {
+    width: 120px; height: 120px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    margin-bottom: 32px;
+    animation: spin-ring 8s linear infinite;
+  }
+
+  .logo-ring::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,212,255,0.2);
+    animation: spin-ring 12s linear infinite reverse;
+  }
+
+  .logo-ring .play {
+    font-size: 48px;
+    filter: drop-shadow(0 0 20px rgba(255,0,0,0.8));
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes spin-ring {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes pulse-glow {
+    0%,100% { transform: scale(1); filter: drop-shadow(0 0 20px rgba(255,0,0,0.8)); }
+    50%      { transform: scale(1.1); filter: drop-shadow(0 0 40px rgba(255,0,0,1)); }
+  }
+
+  .hero-badge {
+    display: inline-block;
+    background: rgba(255,0,0,0.1);
+    border: 1px solid rgba(255,0,0,0.3);
+    color: #ff6666;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 20px;
+    margin-bottom: 24px;
+    animation: fadein 1s ease 0.2s both;
+  }
+
+  .hero-title {
+    font-size: clamp(48px, 8vw, 96px);
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 12px;
+    animation: fadein 1s ease 0.4s both;
+  }
+
+  .hero-title .red { color: var(--red); }
+  .hero-title .white { color: #fff; }
+
+  .hero-sub {
+    font-size: clamp(16px, 2.5vw, 22px);
+    color: var(--dim);
+    font-weight: 300;
+    max-width: 640px;
+    line-height: 1.6;
+    margin-bottom: 48px;
+    animation: fadein 1s ease 0.6s both;
+  }
+
+  .hero-sub strong { color: var(--text); font-weight: 600; }
+
+  .hero-cta {
+    display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+    animation: fadein 1s ease 0.8s both;
+  }
+
+  .btn {
+    padding: 14px 32px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+    transition: all 0.2s;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .btn-primary {
+    background: var(--red);
+    color: #fff;
+    box-shadow: 0 0 30px rgba(255,0,0,0.3);
+  }
+  .btn-primary:hover { background: #e00; box-shadow: 0 0 50px rgba(255,0,0,0.5); transform: translateY(-2px); }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  .btn-outline:hover { border-color: rgba(255,255,255,0.5); transform: translateY(-2px); }
+
+  @keyframes fadein {
+    from { opacity:0; transform: translateY(20px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  /* ── SCROLL INDICATOR ── */
+  .scroll-hint {
+    position: absolute;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    color: var(--dim);
+    font-size: 12px;
+    letter-spacing: 1px;
+    animation: fadein 2s ease 1.5s both;
+  }
+  .scroll-arrow {
+    width: 20px; height: 20px;
+    border-right: 2px solid var(--dim);
+    border-bottom: 2px solid var(--dim);
+    transform: rotate(45deg);
+    animation: bounce 1.5s ease infinite;
+  }
+  @keyframes bounce { 0%,100%{transform:rotate(45deg) translateY(0)} 50%{transform:rotate(45deg) translateY(6px)} }
+
+  /* ── SECTION BASE ── */
+  section {
+    padding: 100px 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 900;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+
+  .section-desc {
+    font-size: 18px;
+    color: var(--dim);
+    max-width: 600px;
+    line-height: 1.7;
+    margin-bottom: 64px;
+  }
+
+  /* ── PIPELINE ── */
+  #pipeline { text-align: center; }
+
+  .pipeline-track {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-top: 16px;
+  }
+
+  .pipe-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+
+  .pipe-step.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .pipe-icon {
+    width: 72px; height: 72px;
+    border-radius: 16px;
+    background: var(--bg3);
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .pipe-icon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,0,0,0.15), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .pipe-step:hover .pipe-icon {
+    border-color: rgba(255,0,0,0.4);
+    box-shadow: 0 0 30px rgba(255,0,0,0.2);
+    transform: translateY(-4px);
+  }
+  .pipe-step:hover .pipe-icon::before { opacity: 1; }
+
+  .pipe-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--dim);
+    text-align: center;
+    max-width: 80px;
+    line-height: 1.3;
+  }
+
+  .pipe-arrow {
+    font-size: 20px;
+    color: rgba(255,255,255,0.15);
+    padding: 0 4px;
+    margin-bottom: 20px;
+    flex-shrink: 0;
+  }
+
+  /* ── STATS ── */
+  #stats {
+    background: var(--bg2);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 80px 20px;
+  }
+
+  #stats > div {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 40px;
+    text-align: center;
+  }
+
+  .stat-num {
+    font-size: 56px;
+    font-weight: 900;
+    line-height: 1;
+    background: linear-gradient(135deg, #fff, var(--red));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-label {
+    font-size: 14px;
+    color: var(--dim);
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+
+  /* ── FEATURES ── */
+  #features .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+  }
+
+  .feat-card {
+    background: var(--bg3);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 32px;
+    transition: all 0.3s;
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  .feat-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .feat-card:hover {
+    border-color: rgba(255,0,0,0.3);
+    box-shadow: 0 8px 40px rgba(255,0,0,0.08);
+    transform: translateY(-4px);
+  }
+
+  .feat-icon {
+    font-size: 36px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  .feat-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  .feat-desc {
+    font-size: 14px;
+    color: var(--dim);
+    line-height: 1.7;
+  }
+
+  /* ── TERMINAL ── */
+  #install { text-align: center; }
+
+  .terminal {
+    background: #0d0d0d;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    overflow: hidden;
+    max-width: 680px;
+    margin: 0 auto;
+    text-align: left;
+    box-shadow: 0 20px 80px rgba(0,0,0,0.6);
+  }
+
+  .term-bar {
+    background: #1a1a1a;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .term-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+  .term-dot:nth-child(1) { background: #ff5f57; }
+  .term-dot:nth-child(2) { background: #febc2e; }
+  .term-dot:nth-child(3) { background: #28c840; }
+
+  .term-title {
+    font-size: 12px;
+    color: var(--dim);
+    margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .term-body {
+    padding: 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    line-height: 2;
+  }
+
+  .term-line { display: flex; align-items: baseline; gap: 8px; }
+  .term-prompt { color: var(--green); flex-shrink: 0; }
+  .term-cmd { color: #fff; }
+  .term-comment { color: #555; font-size: 12px; }
+  .term-output { color: var(--cyan); padding-left: 20px; font-size: 13px; }
+  .term-success { color: var(--green); padding-left: 20px; }
+
+  .term-cursor {
+    display: inline-block;
+    width: 8px; height: 16px;
+    background: var(--green);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── PROVIDERS ── */
+  #providers { text-align: center; }
+
+  .providers-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  .provider-pill {
+    background: var(--bg3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  .provider-pill.visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .provider-pill:hover {
+    border-color: rgba(255,0,0,0.4);
+    color: #fff;
+    transform: scale(1.05);
+  }
+
+  .provider-pill.free::after {
+    content: ' FREE';
+    font-size: 9px;
+    color: var(--green);
+    letter-spacing: 1px;
+    vertical-align: super;
+  }
+
+  /* ── TELEGRAM ── */
+  #telegram {
+    display: flex;
+    gap: 60px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  #telegram .text { flex: 1; min-width: 280px; }
+  #telegram .chat { flex: 1; min-width: 280px; }
+
+  .chat-bubble-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 320px;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.5s ease;
+  }
+
+  .bubble.visible { opacity: 1; transform: translateX(0); }
+
+  .bubble.user {
+    background: rgba(255,0,0,0.15);
+    border: 1px solid rgba(255,0,0,0.2);
+    align-self: flex-end;
+    transform: translateX(20px);
+    border-radius: 12px 12px 0 12px;
+  }
+
+  .bubble.user.visible { transform: translateX(0); }
+
+  .bubble.bot {
+    background: var(--bg3);
+    border: 1px solid rgba(255,255,255,0.08);
+    align-self: flex-start;
+    border-radius: 12px 12px 12px 0;
+  }
+
+  .bubble .bot-icon { font-size: 12px; color: var(--cyan); margin-bottom: 4px; font-weight: 700; }
+
+  /* ── COST ── */
+  #cost { text-align: center; }
+
+  .cost-table {
+    background: var(--bg3);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    overflow: hidden;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+
+  .cost-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 28px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 15px;
+    transition: background 0.2s;
+  }
+
+  .cost-row:last-child { border-bottom: none; }
+  .cost-row:hover { background: rgba(255,255,255,0.03); }
+
+  .cost-row .service { color: var(--dim); }
+  .cost-row .price { color: var(--green); font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+  .cost-total {
+    background: rgba(0,255,136,0.05);
+    border-top: 1px solid rgba(0,255,136,0.2) !important;
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  .cost-total .service { color: var(--text); }
+  .cost-total .price { font-size: 24px; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 2;
+  }
+
+  footer a { color: var(--red); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  footer .big {
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: 900;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+
+  /* ── ANIMATED COUNTER ── */
+  .counter { display: inline-block; }
+
+  /* ── FLOATING PARTICLES ── */
+  .particles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+
+  .particle {
+    position: absolute;
+    width: 2px; height: 2px;
+    background: rgba(255,0,0,0.4);
+    border-radius: 50%;
+    animation: float-up linear infinite;
+  }
+
+  @keyframes float-up {
+    0%   { transform: translateY(100vh) scale(0); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 0.5; }
+    100% { transform: translateY(-20px) scale(1); opacity: 0; }
+  }
+
+  /* ── DIVIDER ── */
+  .divider {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,0,0,0.3), transparent);
+    margin: 0;
+  }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 600px) {
+    .pipe-arrow { display: none; }
+    .pipeline-track { gap: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Particles -->
+<div class="particles" id="particles"></div>
+
+<!-- ── HERO ── -->
+<div id="hero">
+  <div class="grid-bg"></div>
+
+  <div class="logo-ring">
+    <span class="play">▶</span>
+  </div>
+
+  <div class="hero-badge">Open Source · Free Tier · Python</div>
+
+  <h1 class="hero-title">
+    <span class="red">Tube</span><span class="white">Assistant</span>
+  </h1>
+
+  <p class="hero-sub">
+    An <strong>AI agent</strong> that runs your YouTube channel <strong>24/7</strong> —
+    generates scripts, voices them, edits the video, creates thumbnails, and uploads.
+    <strong>Zero human input required.</strong>
+  </p>
+
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="https://github.com/metiu1/tube-assistant" target="_blank">⭐ Star on GitHub</a>
+    <a class="btn btn-outline" href="#install">Quick Start ↓</a>
+  </div>
+
+  <div class="scroll-hint">
+    <span>SCROLL</span>
+    <div class="scroll-arrow"></div>
+  </div>
+</div>
+
+<!-- ── PIPELINE ── -->
+<section id="pipeline">
+  <div class="section-label">How it works</div>
+  <h2 class="section-title">8-Stage Autonomous Pipeline</h2>
+  <p class="section-desc">Every day, at the time you choose, the agent runs start to finish — no human in the loop.</p>
+
+  <div class="pipeline-track">
+    <div class="pipe-step"><div class="pipe-icon">📊</div><div class="pipe-label">Analytics</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">🧠</div><div class="pipe-label">AI Strategy</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">✍️</div><div class="pipe-label">Script Gen</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">🎙️</div><div class="pipe-label">TTS Voice</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">🎞️</div><div class="pipe-label">Stock Clips</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">⚙️</div><div class="pipe-label">Montage</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">🖼️</div><div class="pipe-label">AI Thumb</div></div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step"><div class="pipe-icon">📤</div><div class="pipe-label">YouTube Upload</div></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── STATS ── -->
+<div id="stats">
+  <div>
+    <div class="stat-num"><span class="counter" data-target="15">0</span>+</div>
+    <div class="stat-label">AI Providers<br>supported</div>
+  </div>
+  <div>
+    <div class="stat-num">$<span class="counter" data-target="0">0</span></div>
+    <div class="stat-label">Monthly cost<br>on free tiers</div>
+  </div>
+  <div>
+    <div class="stat-num"><span class="counter" data-target="24">0</span>/7</div>
+    <div class="stat-label">Runs autonomously<br>around the clock</div>
+  </div>
+  <div>
+    <div class="stat-num"><span class="counter" data-target="8">0</span></div>
+    <div class="stat-label">Pipeline stages<br>fully automated</div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- ── FEATURES ── -->
+<section id="features">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Everything automated</h2>
+  <p class="section-desc">From topic research to published video — every step runs without you.</p>
+
+  <div class="grid">
+    <div class="feat-card">
+      <span class="feat-icon">🤖</span>
+      <div class="feat-title">AI Script Generation</div>
+      <div class="feat-desc">LLM writes a full video script based on your niche, what's performing on your channel, and the strategy the agent derived from analytics.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🎙️</span>
+      <div class="feat-title">Natural TTS Voice</div>
+      <div class="feat-desc">Edge TTS synthesizes natural-sounding narration in any language. No API cost, no robotic voice. Sounds like a real human presenter.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🎬</span>
+      <div class="feat-title">Automatic Video Editing</div>
+      <div class="feat-desc">Downloads relevant stock clips from Pexels, syncs them to the narration with FFmpeg, adds background music. Full montage, zero effort.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">🖼️</span>
+      <div class="feat-title">AI Thumbnail</div>
+      <div class="feat-desc">Generates a custom thumbnail image via Pollinations.ai or HuggingFace FLUX, then overlays the video title with Pillow. Click-optimized.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">📊</span>
+      <div class="feat-title">Analytics-Driven</div>
+      <div class="feat-desc">Reads your YouTube channel performance before every video. Adapts topic selection, pacing, and tone based on what's actually working.</div>
+    </div>
+    <div class="feat-card">
+      <span class="feat-icon">⚡</span>
+      <div class="feat-title">Crash Recovery</div>
+      <div class="feat-desc">Pipeline checkpoints save progress after each stage. If something fails mid-render, the agent resumes from the last completed step — not from scratch.</div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── INSTALL ── -->
+<section id="install">
+  <div class="section-label">Quick Start</div>
+  <h2 class="section-title">3 commands.<br>Channel on autopilot.</h2>
+  <p class="section-desc">Install once. The wizard handles API keys, Google OAuth, Telegram, and channel setup.</p>
+
+  <div class="terminal">
+    <div class="term-bar">
+      <div class="term-dot"></div>
+      <div class="term-dot"></div>
+      <div class="term-dot"></div>
+      <span class="term-title">terminal</span>
+    </div>
+    <div class="term-body">
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">pip install uv</span>
+        <span class="term-comment"># fast package installer</span>
+      </div>
+      <div class="term-line">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">uv tool install git+https://github.com/metiu1/tube-assistant.git</span>
+      </div>
+      <div class="term-line" style="margin-top:4px">
+        <span class="term-output">✓ Installed tube-assistant</span>
+      </div>
+      <div class="term-line" style="margin-top:8px">
+        <span class="term-prompt">$</span>
+        <span class="term-cmd">tube-assistant</span>
+        <span class="term-comment"># pick Setup Wizard</span>
+      </div>
+      <div class="term-line">
+        <span class="term-success">✓ AI service configured</span>
+      </div>
+      <div class="term-line">
+        <span class="term-success">✓ Telegram bot connected</span>
+      </div>
+      <div class="term-line">
+        <span class="term-success">✓ YouTube credentials saved</span>
+      </div>
+      <div class="term-line">
+        <span class="term-success">✓ Agent started — first video today at 20:00 UTC</span>
+      </div>
+      <div class="term-line" style="margin-top:4px">
+        <span class="term-prompt">$</span>
+        <span class="term-cursor"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── TELEGRAM ── -->
+<section>
+  <div id="telegram">
+    <div class="text">
+      <div class="section-label">Control</div>
+      <h2 class="section-title">Talk to your agent on Telegram</h2>
+      <p class="section-desc" style="margin-bottom:0">Send a message and the agent obeys. Queue topics, force a video now, check analytics, change settings — all from your phone.</p>
+    </div>
+    <div class="chat">
+      <div class="chat-bubble-wrap">
+        <div class="bubble user">Next video about the future of AI in medicine 🏥</div>
+        <div class="bubble bot">
+          <div class="bot-icon">🤖 TubeAssistant</div>
+          Got it! Added to queue: <strong>"The Future of AI in Medicine"</strong><br>
+          Will publish today at 20:00 UTC.
+        </div>
+        <div class="bubble user">/forza</div>
+        <div class="bubble bot">
+          <div class="bot-icon">🤖 TubeAssistant</div>
+          ⚡ Pipeline forced! Starting in 60 seconds…<br>
+          <span style="color:var(--dim);font-size:12px">Step 1/8 — Reading analytics…</span>
+        </div>
+        <div class="bubble bot">
+          <div class="bot-icon">🤖 TubeAssistant</div>
+          ✅ Video published!<br>
+          <a href="#" style="color:var(--cyan)">youtu.be/dQw4w9WgXcQ</a><br>
+          <span style="color:var(--dim);font-size:12px">12,483 impressions in first hour</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── PROVIDERS ── -->
+<section id="providers">
+  <div class="section-label">AI Providers</div>
+  <h2 class="section-title">15 providers supported</h2>
+  <p class="section-desc" style="margin:0 auto 48px">Switch with one env variable. Free tiers available on OpenRouter, Gemini, and Groq.</p>
+
+  <div class="providers-grid">
+    <div class="provider-pill free">OpenRouter</div>
+    <div class="provider-pill free">Gemini</div>
+    <div class="provider-pill free">Groq</div>
+    <div class="provider-pill">OpenAI</div>
+    <div class="provider-pill">Anthropic</div>
+    <div class="provider-pill">DeepSeek</div>
+    <div class="provider-pill">xAI Grok</div>
+    <div class="provider-pill">Mistral</div>
+    <div class="provider-pill">Cohere</div>
+    <div class="provider-pill">Together AI</div>
+    <div class="provider-pill">Perplexity</div>
+    <div class="provider-pill">Fireworks AI</div>
+    <div class="provider-pill">Azure OpenAI</div>
+    <div class="provider-pill">Ollama Cloud</div>
+    <div class="provider-pill free">Local Ollama</div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ── COST ── -->
+<section id="cost">
+  <div class="section-label">Pricing</div>
+  <h2 class="section-title">$0/month.<br>Seriously.</h2>
+  <p class="section-desc" style="margin:0 auto 48px">Every service has a free tier. You can run TubeAssistant indefinitely at zero cost.</p>
+
+  <div class="cost-table">
+    <div class="cost-row"><span class="service">OpenRouter (LLM)</span><span class="price">$0</span></div>
+    <div class="cost-row"><span class="service">Pexels (stock footage)</span><span class="price">$0</span></div>
+    <div class="cost-row"><span class="service">Edge TTS (voice)</span><span class="price">$0</span></div>
+    <div class="cost-row"><span class="service">Pollinations.ai (thumbnails)</span><span class="price">$0</span></div>
+    <div class="cost-row"><span class="service">YouTube Data API</span><span class="price">$0</span></div>
+    <div class="cost-row"><span class="service">Telegram bot</span><span class="price">$0</span></div>
+    <div class="cost-row cost-total"><span class="service">Total / month</span><span class="price">$0</span></div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="big">Start today. Post forever.</div>
+  <div style="margin-bottom:24px;color:var(--dim)">Open source · MIT License · No lock-in</div>
+  <a class="btn btn-primary" href="https://github.com/metiu1/tube-assistant" target="_blank" style="display:inline-block;margin-bottom:32px">⭐ Star on GitHub</a>
+  <div>
+    Built with Python · FFmpeg · Edge TTS · Pexels · Telegram · YouTube Data API v3<br>
+    <a href="https://github.com/metiu1/tube-assistant">github.com/metiu1/tube-assistant</a>
+  </div>
+</footer>
+
+<script>
+// ── Particles
+const pContainer = document.getElementById('particles');
+for (let i = 0; i < 25; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.left = Math.random() * 100 + 'vw';
+  p.style.animationDuration = (8 + Math.random() * 16) + 's';
+  p.style.animationDelay = (Math.random() * 20) + 's';
+  p.style.width = p.style.height = (1 + Math.random() * 3) + 'px';
+  pContainer.appendChild(p);
+}
+
+// ── Intersection Observer for animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.pipe-step, .feat-card, .bubble, .provider-pill').forEach((el, i) => {
+  el.style.transitionDelay = (i * 0.07) + 's';
+  observer.observe(el);
+});
+
+// ── Counter animation
+function animateCounter(el) {
+  const target = parseInt(el.dataset.target);
+  const duration = 1500;
+  const start = performance.now();
+  function step(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.floor(ease * target);
+    if (t < 1) requestAnimationFrame(step);
+    else el.textContent = target;
+  }
+  requestAnimationFrame(step);
+}
+
+const counterObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      animateCounter(entry.target);
+      counterObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.5 });
+
+document.querySelectorAll('.counter').forEach(el => counterObserver.observe(el));
+</script>
+</body>
+</html>
