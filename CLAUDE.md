@@ -10,19 +10,21 @@ Autonomous YouTube content pipeline. Daemon (`agent.py`) runs 24/7, triggers per
 ## Run / Setup
 
 ### First time (new user)
+
+**Quick Start (recommended — no cloning needed):**
+```bash
+pip install uv                                                    # fast installer (one-time)
+uv tool install git+https://github.com/metiu1/tube-assistant.git
+tube-assistant             # interactive menu — pick Setup wizard first
+```
+
+**From source (git clone):**
 ```powershell
 .\installa.bat                  # pip install -e . + instructions
-youtube-ai-agent onboard        # TUI wizard: AI service → Pexels → Telegram → channel setup via Telegram
-youtube-ai-agent start          # start daemon
+tube-assistant onboard          # TUI wizard: AI service → Pexels → Telegram → channel setup via Telegram
+tube-assistant start            # start daemon
 ```
 The wizard writes `.env`, `preferenze_video.json`, `memoria_lungo_termine.json`, `credentials.json` to the workspace. No manual file editing needed.
-
-Or without cloning (pip from URL):
-```bash
-pip install git+https://github.com/user/youtube-ai-agent.git
-youtube-ai-agent onboard
-youtube-ai-agent start
-```
 
 ### Already configured
 ```powershell

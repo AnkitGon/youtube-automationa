@@ -842,12 +842,9 @@ def main() -> None:
     console.print(table)
     console.print()
 
-    # avvia l'agente automaticamente
-    import subprocess
-    agent_script = Path(__file__).parent / "agent.py"
-    console.print("  [dim]Avvio agent.py...[/]")
-    console.print()
-    os.execv(sys.executable, [sys.executable, str(agent_script)])
+    # auto-start: works for both git clone and uv tool install
+    workspace = str(Path.cwd())
+    os.execv(sys.executable, [sys.executable, "-m", "youtube_ai_agent._launcher", workspace, "agent"])
 
 
 if __name__ == "__main__":
