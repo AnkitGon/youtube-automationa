@@ -16,6 +16,18 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-informational?style=flat-square" alt="Platform"/>
 </p>
 
+<p align="center">
+  <video src="https://github.com/metiu1/tube-assistant/raw/master/promo_video.mp4" controls poster="https://raw.githubusercontent.com/metiu1/tube-assistant/master/promo_thumbnail.jpg" width="800"></video>
+</p>
+
+<p align="center">
+  <a href="https://github.com/metiu1/tube-assistant/raw/master/promo_video.mp4">
+    <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/promo_thumbnail.jpg" alt="Watch the demo (40s)" width="800"/>
+  </a>
+  <br/>
+  <em>▶ <a href="https://github.com/metiu1/tube-assistant/raw/master/promo_video.mp4">Watch the 40-second demo</a></em>
+</p>
+
 ---
 
 **TubeAssistant** is an open-source AI agent that automates your entire YouTube workflow. It generates scripts with an LLM, synthesizes narration, downloads stock footage, edits the video, creates an AI thumbnail, and uploads to YouTube — every day, automatically, at the time you choose.
