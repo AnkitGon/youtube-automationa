@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>TubeAssistant — Promo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --panel: #0a0a0c;
+    --white: #ffffff;
+    --dim: #8a8a92;
+    --dim2: #4a4a52;
+    --red: #e50914;
+    --red-soft: #ff3340;
+    --green: #28c840;
+    --t: 0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 1920px; height: 1080px;
+    background: #000;
+    color: var(--white);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  .stage {
+    position: relative;
+    width: 1920px; height: 1080px;
+    overflow: hidden;
+    background: #000;
+  }
+
+  /* universal vignette */
+  .stage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center,
+      transparent 50%, rgba(0,0,0,0.35) 100%);
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  .scene {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    will-change: opacity, transform;
+  }
+
+  .scene.visible { opacity: 1; }
+
+  .grain {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    z-index: 90;
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 1: COLD OPEN  (0–5s)  --lt: 0..1
+  ──────────────────────────────────────────────────────────────── */
+  #s1 .glow {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1400px; height: 800px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center,
+      rgba(229, 9, 20, 0.18) 0%,
+      rgba(229, 9, 20, 0.06) 30%,
+      transparent 60%);
+    filter: blur(20px);
+    opacity: calc(var(--lt) * 1.2);
+  }
+
+  #s1 .ring-wrap {
+    position: absolute;
+    left: 50%; top: 42%;
+    transform: translate(-50%, -50%);
+  }
+
+  #s1 .ring {
+    width: calc(180px * min(max(var(--lt) * 3, 0), 1));
+    height: calc(180px * min(max(var(--lt) * 3, 0), 1));
+    border: 2px solid var(--red);
+    border-radius: 50%;
+    opacity: calc(min(max(var(--lt) * 3, 0), 1));
+    box-shadow: 0 0 60px rgba(229,9,20,0.4);
+    position: relative;
+  }
+
+  #s1 .ring::before {
+    content: '';
+    position: absolute;
+    inset: -14px;
+    border: 1px solid rgba(229,9,20,0.25);
+    border-radius: 50%;
+  }
+
+  #s1 .play {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-46%, -50%);
+    width: 0; height: 0;
+    border-left: 32px solid var(--red);
+    border-top: 20px solid transparent;
+    border-bottom: 20px solid transparent;
+    opacity: calc(min(max((var(--lt) - 0.25) * 4, 0), 1));
+  }
+
+  #s1 .title {
+    position: absolute;
+    left: 50%; top: 62%;
+    transform: translate(-50%, -50%);
+    font-size: 96px;
+    font-weight: 800;
+    letter-spacing: calc(28px * (1 - min(max((var(--lt) - 0.25) * 2, 0), 1)) + 4px);
+    opacity: calc(min(max((var(--lt) - 0.25) * 2, 0), 1));
+    color: var(--white);
+    white-space: nowrap;
+    text-shadow: 0 0 40px rgba(255,255,255,0.08);
+  }
+
+  #s1 .sub {
+    position: absolute;
+    left: 50%; top: 73%;
+    transform: translate(-50%, calc(-50% + 20px * (1 - min(max((var(--lt) - 0.5) * 3, 0), 1))));
+    font-size: 22px;
+    font-weight: 300;
+    letter-spacing: 8px;
+    color: var(--dim);
+    opacity: calc(min(max((var(--lt) - 0.5) * 3, 0), 1));
+    text-transform: uppercase;
+  }
+
+  #s1 .divider {
+    position: absolute;
+    left: 50%; top: 80%;
+    width: calc(180px * min(max((var(--lt) - 0.65) * 3, 0), 1));
+    height: 2px;
+    transform: translate(-50%, -50%);
+    background: var(--red);
+    opacity: calc(min(max((var(--lt) - 0.65) * 3, 0), 1));
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 2: THE PROMISE  (5–10s)
+  ──────────────────────────────────────────────────────────────── */
+  #s2 .glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 40% at 50% 50%,
+      rgba(229, 9, 20, 0.12) 0%, transparent 60%);
+    opacity: calc(min(max(var(--lt) * 2, 0), 1));
+  }
+
+  #s2 .line {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    text-align: center;
+    width: 100%;
+  }
+
+  /* "Your YouTube channel." */
+  #s2 .l1 {
+    top: 30%;
+    font-size: 52px;
+    font-weight: 300;
+    letter-spacing: -1px;
+    color: var(--dim);
+    opacity: calc(min(max((var(--lt) - 0.05) * 4, 0), 1));
+    transform: translateX(-50%) translateY(calc(20px * (1 - min(max((var(--lt) - 0.05) * 3, 0), 1))));
+  }
+
+  /* "On autopilot." */
+  #s2 .l2 {
+    top: 44%;
+    font-size: 144px;
+    font-weight: 900;
+    letter-spacing: -4px;
+    color: var(--white);
+    opacity: calc(min(max((var(--lt) - 0.25) * 3, 0), 1));
+    transform: translateX(-50%) translateY(calc(30px * (1 - min(max((var(--lt) - 0.25) * 2.5, 0), 1))));
+    text-shadow: 0 0 60px rgba(255,255,255,0.15);
+  }
+
+  /* "$0/month. Forever." */
+  #s2 .l3 {
+    top: 68%;
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    color: var(--red);
+    opacity: calc(min(max((var(--lt) - 0.5) * 3, 0), 1));
+    transform: translateX(-50%) translateY(calc(20px * (1 - min(max((var(--lt) - 0.5) * 2.5, 0), 1))));
+    text-shadow: 0 0 50px rgba(229,9,20,0.4);
+  }
+
+  #s2 .dot {
+    position: absolute;
+    left: 50%; top: 80%;
+    width: 8px; height: 8px;
+    transform: translate(-50%, -50%) scale(calc(min(max((var(--lt) - 0.75) * 4, 0), 1)));
+    background: var(--red);
+    border-radius: 50%;
+    box-shadow: 0 0 30px var(--red);
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 3: TELEGRAM  (10–18s)  duration 8s
+  ──────────────────────────────────────────────────────────────── */
+  #s3 .label {
+    position: absolute;
+    left: 50%; top: 9%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: var(--red);
+    opacity: calc(min(max(var(--lt) * 6, 0), 1));
+    text-transform: uppercase;
+  }
+
+  #s3 .heading {
+    position: absolute;
+    left: 50%; top: 15%;
+    transform: translate(-50%, -50%);
+    font-size: 52px;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    color: var(--white);
+    opacity: calc(min(max((var(--lt) - 0.03) * 5, 0), 1));
+    white-space: nowrap;
+  }
+
+  #s3 .sub {
+    position: absolute;
+    left: 50%; top: 20%;
+    transform: translate(-50%, -50%);
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--dim);
+    opacity: calc(min(max((var(--lt) - 0.07) * 5, 0), 1));
+    white-space: nowrap;
+  }
+
+  /* Phone mockup */
+  #s3 .phone {
+    position: absolute;
+    left: 32%; top: 62%;
+    transform: translate(-50%, -50%)
+      translateY(calc(50px * (1 - min(max((var(--lt) - 0.12) * 4, 0), 1))))
+      scale(calc(0.94 + 0.06 * min(max((var(--lt) - 0.12) * 4, 0), 1)));
+    width: 520px;
+    height: 820px;
+    background: linear-gradient(180deg, #1a1a1c 0%, #0e0e10 100%);
+    border-radius: 56px;
+    padding: 18px;
+    box-shadow:
+      0 0 0 1.5px rgba(255,255,255,0.08),
+      0 40px 120px rgba(0,0,0,0.8),
+      0 0 200px rgba(229,9,20,0.10);
+    opacity: calc(min(max((var(--lt) - 0.12) * 4, 0), 1));
+  }
+
+  #s3 .screen {
+    width: 100%; height: 100%;
+    background: #17212b;
+    border-radius: 42px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  #s3 .top-bar {
+    background: #232e3c;
+    padding: 20px 24px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  #s3 .avatar {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--red), #8a0a10);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+  }
+
+  #s3 .bot-info { flex: 1; }
+  #s3 .bot-name {
+    font-size: 18px; font-weight: 600;
+    color: #fff;
+  }
+  #s3 .bot-status {
+    font-size: 13px;
+    color: #7aa3c4;
+    margin-top: 2px;
+  }
+
+  #s3 .chat {
+    padding: 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  #s3 .msg {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    font-size: 18px;
+    line-height: 1.4;
+    font-weight: 400;
+    word-wrap: break-word;
+  }
+
+  #s3 .msg.user {
+    align-self: flex-end;
+    background: #2b5278;
+    color: #fff;
+    border-bottom-right-radius: 6px;
+  }
+
+  #s3 .msg.bot {
+    align-self: flex-start;
+    background: #182533;
+    color: #fff;
+    border-bottom-left-radius: 6px;
+  }
+
+  #s3 .msg .time {
+    font-size: 12px;
+    color: rgba(255,255,255,0.5);
+    margin-left: 10px;
+    display: inline-block;
+  }
+  #s3 .msg .ticks {
+    color: #6db9ef;
+    margin-left: 4px;
+    font-size: 13px;
+  }
+
+  /* Each message reveals at a specific local time within the scene */
+  /* Scene is 8s; --lt is 0..1 */
+  /* msg appear: 0.15, 0.30, 0.50, 0.70 */
+
+  #s3 .m1 {
+    opacity: calc(min(max((var(--lt) - 0.18) * 8, 0), 1));
+    transform: translateY(calc(8px * (1 - min(max((var(--lt) - 0.18) * 8, 0), 1))));
+  }
+  #s3 .m2 {
+    opacity: calc(min(max((var(--lt) - 0.32) * 8, 0), 1));
+    transform: translateY(calc(8px * (1 - min(max((var(--lt) - 0.32) * 8, 0), 1))));
+  }
+  #s3 .m3 {
+    opacity: calc(min(max((var(--lt) - 0.52) * 8, 0), 1));
+    transform: translateY(calc(8px * (1 - min(max((var(--lt) - 0.52) * 8, 0), 1))));
+  }
+  #s3 .m4 {
+    opacity: calc(min(max((var(--lt) - 0.72) * 8, 0), 1));
+    transform: translateY(calc(8px * (1 - min(max((var(--lt) - 0.72) * 8, 0), 1))));
+  }
+
+  /* typing dots — visible between m3 and m4 */
+  #s3 .typing {
+    align-self: flex-start;
+    background: #182533;
+    padding: 14px 18px;
+    border-radius: 18px;
+    border-bottom-left-radius: 6px;
+    display: flex;
+    gap: 6px;
+    opacity: calc(
+      min(max((var(--lt) - 0.55) * 10, 0), 1) *
+      max(0, 1 - max(0, (var(--lt) - 0.70) * 10))
+    );
+  }
+  #s3 .typing span {
+    width: 9px; height: 9px;
+    background: #6a8fa8;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  /* JS injects per-dot opacity to fake animation */
+
+  /* side annotations */
+  #s3 .annotation {
+    position: absolute;
+    left: 62%;
+    top: 62%;
+    transform: translateY(-50%) translateX(calc(-30px * (1 - min(max((var(--lt) - 0.35) * 3, 0), 1))));
+    font-size: 26px;
+    color: #c8c8d0;
+    line-height: 1.5;
+    opacity: calc(min(max((var(--lt) - 0.35) * 3, 0), 1));
+    max-width: 520px;
+    font-weight: 400;
+  }
+
+  #s3 .annotation .big {
+    font-size: 72px;
+    color: var(--white);
+    font-weight: 900;
+    display: block;
+    margin-bottom: 28px;
+    letter-spacing: -2.5px;
+    line-height: 1;
+  }
+
+  #s3 .annotation .punch {
+    color: var(--red-soft);
+    font-weight: 800;
+    font-size: 30px;
+    letter-spacing: -0.5px;
+    display: block;
+    margin-top: 28px;
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 4: YOUTUBE  (18–26s)
+  ──────────────────────────────────────────────────────────────── */
+  #s4 .label {
+    position: absolute;
+    left: 50%; top: 9%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: var(--red);
+    opacity: calc(min(max(var(--lt) * 6, 0), 1));
+    text-transform: uppercase;
+  }
+
+  #s4 .heading {
+    position: absolute;
+    left: 50%; top: 15%;
+    transform: translate(-50%, -50%);
+    font-size: 52px;
+    font-weight: 700;
+    letter-spacing: -1.5px;
+    color: var(--white);
+    opacity: calc(min(max((var(--lt) - 0.03) * 5, 0), 1));
+  }
+
+  /* Mock YouTube video card */
+  #s4 .yt-card {
+    position: absolute;
+    left: 50%; top: 60%;
+    transform: translate(-50%, -50%)
+      translateY(calc(40px * (1 - min(max((var(--lt) - 0.1) * 4, 0), 1))));
+    width: 1480px;
+    background: #0f0f0f;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1.5px rgba(255,255,255,0.06),
+      0 50px 140px rgba(0,0,0,0.8),
+      0 0 240px rgba(229,9,20,0.08);
+    opacity: calc(min(max((var(--lt) - 0.1) * 4, 0), 1));
+  }
+
+  #s4 .thumbnail {
+    width: 100%;
+    height: 560px;
+    background:
+      linear-gradient(135deg, rgba(229,9,20,0.45) 0%, rgba(20,5,8,0.95) 100%),
+      radial-gradient(ellipse at 30% 30%, rgba(255,200,100,0.3), transparent 50%),
+      #1a0e0e;
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding-left: 80px;
+  }
+
+  #s4 .thumbnail::before {
+    content: '';
+    position: absolute;
+    right: 40px; top: 50%;
+    transform: translateY(-50%);
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%);
+    filter: blur(20px);
+  }
+
+  #s4 .thumb-title {
+    font-size: 78px;
+    font-weight: 900;
+    color: var(--white);
+    line-height: 1.05;
+    max-width: 780px;
+    letter-spacing: -2.5px;
+    text-shadow: 0 4px 30px rgba(0,0,0,0.8);
+    z-index: 2;
+  }
+
+  #s4 .thumb-icon {
+    position: absolute;
+    right: 110px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 200px;
+    z-index: 1;
+    filter: drop-shadow(0 6px 30px rgba(0,0,0,0.6));
+  }
+
+  #s4 .yt-meta {
+    padding: 36px 44px;
+  }
+
+  #s4 .video-title {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 22px;
+    letter-spacing: -0.5px;
+  }
+
+  #s4 .channel-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 26px;
+  }
+
+  #s4 .ch-avatar {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--red), #8a0a10);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    color: #fff;
+    font-size: 20px;
+  }
+
+  #s4 .ch-name {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--white);
+  }
+
+  #s4 .ch-subs {
+    font-size: 17px;
+    color: var(--dim);
+    margin-top: 4px;
+  }
+
+  #s4 .subscribe-btn {
+    margin-left: auto;
+    background: var(--white);
+    color: #000;
+    padding: 14px 28px;
+    border-radius: 24px;
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  #s4 .stats {
+    display: flex;
+    gap: 40px;
+    align-items: center;
+    color: var(--dim);
+    font-size: 20px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+
+  #s4 .stats .views {
+    color: var(--white);
+    font-weight: 700;
+    font-size: 26px;
+  }
+
+  /* Big indicator: "uploaded by AI" */
+  #s4 .badge {
+    position: absolute;
+    top: 36px; right: 36px;
+    background: rgba(229,9,20,0.18);
+    border: 1.5px solid rgba(229,9,20,0.45);
+    color: var(--red-soft);
+    padding: 12px 22px;
+    border-radius: 100px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    backdrop-filter: blur(20px);
+    opacity: calc(min(max((var(--lt) - 0.25) * 4, 0), 1));
+  }
+
+  #s4 .badge::before {
+    content: '●';
+    color: var(--red);
+    margin-right: 6px;
+    animation: pulse-dot 1.5s ease infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 5: TERMINAL  (26–34s)
+  ──────────────────────────────────────────────────────────────── */
+  #s5 .label {
+    position: absolute;
+    left: 50%; top: 9%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: var(--red);
+    opacity: calc(min(max(var(--lt) * 6, 0), 1));
+    text-transform: uppercase;
+  }
+
+  #s5 .heading {
+    position: absolute;
+    left: 50%; top: 15%;
+    transform: translate(-50%, -50%);
+    font-size: 64px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    color: var(--white);
+    opacity: calc(min(max((var(--lt) - 0.03) * 5, 0), 1));
+    white-space: nowrap;
+  }
+
+  #s5 .sub {
+    position: absolute;
+    left: 50%; top: 22%;
+    transform: translate(-50%, -50%);
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--dim);
+    opacity: calc(min(max((var(--lt) - 0.06) * 5, 0), 1));
+  }
+
+  #s5 .terminal {
+    position: absolute;
+    left: 50%; top: 62%;
+    transform: translate(-50%, -50%)
+      translateY(calc(30px * (1 - min(max((var(--lt) - 0.1) * 4, 0), 1))));
+    width: 1500px;
+    background: #0d0d10;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1.5px rgba(255,255,255,0.08),
+      0 50px 140px rgba(0,0,0,0.85),
+      0 0 240px rgba(229,9,20,0.08);
+    opacity: calc(min(max((var(--lt) - 0.1) * 4, 0), 1));
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  #s5 .term-bar {
+    background: #1a1a1d;
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  #s5 .dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+  }
+  #s5 .dot.r { background: #ff5f57; }
+  #s5 .dot.y { background: #febc2e; }
+  #s5 .dot.g { background: #28c840; }
+
+  #s5 .term-title {
+    font-size: 15px;
+    color: var(--dim);
+    margin-left: 20px;
+  }
+
+  #s5 .term-body {
+    padding: 44px 48px 52px;
+    font-size: 26px;
+    line-height: 1.7;
+    min-height: 560px;
+  }
+
+  #s5 .row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  #s5 .prompt {
+    color: var(--green);
+    font-weight: 700;
+  }
+
+  #s5 .cmd {
+    color: var(--white);
+    font-weight: 500;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  #s5 .out {
+    color: #6db9ef;
+    padding-left: 32px;
+    font-size: 22px;
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+
+  #s5 .check {
+    color: var(--green);
+    font-weight: 700;
+  }
+
+  /* Line 1: 0.15-0.30 */
+  #s5 .l1 .cmd { width: calc(360px * min(max((var(--lt) - 0.15) * 8, 0), 1)); }
+  #s5 .l1-out { opacity: calc(min(max((var(--lt) - 0.28) * 10, 0), 1)); }
+
+  /* Line 2: 0.36-0.55 */
+  #s5 .l2 { opacity: calc(min(max((var(--lt) - 0.35) * 10, 0), 1)); }
+  #s5 .l2 .cmd { width: calc(880px * min(max((var(--lt) - 0.36) * 6, 0), 1)); }
+  #s5 .l2-out { opacity: calc(min(max((var(--lt) - 0.55) * 10, 0), 1)); }
+
+  #s5 .dim2 { color: #888; }
+
+  /* Line 3: 0.62-0.75 */
+  #s5 .l3 { opacity: calc(min(max((var(--lt) - 0.62) * 10, 0), 1)); }
+  #s5 .l3 .cmd { width: calc(280px * min(max((var(--lt) - 0.62) * 8, 0), 1)); }
+  #s5 .l3-out { opacity: calc(min(max((var(--lt) - 0.75) * 10, 0), 1)); }
+
+  #s5 .cursor {
+    display: inline-block;
+    width: 12px; height: 28px;
+    background: var(--green);
+    vertical-align: text-bottom;
+    margin-left: 4px;
+    animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink {
+    to { opacity: 0; }
+  }
+
+  /* ────────────────────────────────────────────────────────────────
+     SCENE 6: CTA  (34–40s)
+  ──────────────────────────────────────────────────────────────── */
+  #s6 .glow {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1600px; height: 900px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center,
+      rgba(229, 9, 20, 0.18) 0%,
+      rgba(229, 9, 20, 0.06) 35%,
+      transparent 70%);
+    opacity: calc(min(max(var(--lt) * 1.5, 0), 1));
+    filter: blur(30px);
+  }
+
+  #s6 .small {
+    position: absolute;
+    left: 50%; top: 26%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    color: var(--red);
+    opacity: calc(min(max((var(--lt) - 0.05) * 5, 0), 1));
+    text-transform: uppercase;
+  }
+
+  #s6 .l1 {
+    position: absolute;
+    left: 50%; top: 42%;
+    transform: translate(-50%, -50%)
+      translateY(calc(30px * (1 - min(max((var(--lt) - 0.12) * 3, 0), 1))));
+    font-size: 144px;
+    font-weight: 900;
+    letter-spacing: -4px;
+    color: var(--white);
+    opacity: calc(min(max((var(--lt) - 0.12) * 3, 0), 1));
+    text-shadow: 0 0 80px rgba(255,255,255,0.15);
+    white-space: nowrap;
+  }
+
+  #s6 .l2 {
+    position: absolute;
+    left: 50%; top: 58%;
+    transform: translate(-50%, -50%)
+      translateY(calc(30px * (1 - min(max((var(--lt) - 0.28) * 3, 0), 1))));
+    font-size: 144px;
+    font-weight: 900;
+    letter-spacing: -4px;
+    color: var(--red);
+    opacity: calc(min(max((var(--lt) - 0.28) * 3, 0), 1));
+    text-shadow: 0 0 80px rgba(229,9,20,0.5);
+    white-space: nowrap;
+  }
+
+  #s6 .divider {
+    position: absolute;
+    left: 50%; top: 72%;
+    width: calc(140px * min(max((var(--lt) - 0.45) * 3, 0), 1));
+    height: 2px;
+    transform: translate(-50%, -50%);
+    background: var(--red);
+    opacity: calc(min(max((var(--lt) - 0.45) * 3, 0), 1));
+  }
+
+  #s6 .url {
+    position: absolute;
+    left: 50%; top: 80%;
+    transform: translate(-50%, -50%);
+    font-size: 28px;
+    font-weight: 300;
+    letter-spacing: 4px;
+    color: var(--dim);
+    opacity: calc(min(max((var(--lt) - 0.55) * 3, 0), 1));
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* fade-to-black at end of each scene handled by scene opacity */
+
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- SCENE 1: COLD OPEN -->
+  <div class="scene" id="s1">
+    <div class="glow"></div>
+    <div class="ring-wrap">
+      <div class="ring"><div class="play"></div></div>
+    </div>
+    <div class="title">TUBEASSISTANT</div>
+    <div class="sub">AI agent for YouTube</div>
+    <div class="divider"></div>
+  </div>
+
+  <!-- SCENE 2: PROMISE -->
+  <div class="scene" id="s2">
+    <div class="glow"></div>
+    <div class="line l1">Your YouTube channel.</div>
+    <div class="line l2">On autopilot.</div>
+    <div class="line l3">$0&thinsp;/&thinsp;month. Forever.</div>
+    <div class="dot"></div>
+  </div>
+
+  <!-- SCENE 3: TELEGRAM -->
+  <div class="scene" id="s3">
+    <div class="label">Remote control</div>
+    <div class="heading">Text. The agent posts.</div>
+    <div class="sub">No editing tools. No timeline. Just a message.</div>
+    <div class="phone">
+      <div class="screen">
+        <div class="top-bar">
+          <div class="avatar">T</div>
+          <div class="bot-info">
+            <div class="bot-name">TubeAssistant</div>
+            <div class="bot-status">bot · online</div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="msg user m1">Make a video about AI in medicine<span class="time">14:02</span><span class="ticks">✓✓</span></div>
+          <div class="msg bot m2">Added to queue.<br>Publishing today at 20:00 UTC.<span class="time">14:02</span></div>
+          <div class="msg user m3">/forza<span class="time">14:03</span><span class="ticks">✓✓</span></div>
+          <div class="typing"><span></span><span></span><span></span></div>
+          <div class="msg bot m4">⚡ Pipeline started.<br>Live in 12 min.<span class="time">14:03</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="annotation">
+      <span class="big">One message.<br>One video.</span>
+      Script. Voice. Footage. Editing.<br>
+      Thumbnail. Upload.
+      <span class="punch">No human in the loop.</span>
+    </div>
+  </div>
+
+  <!-- SCENE 4: YOUTUBE -->
+  <div class="scene" id="s4">
+    <div class="label">The output</div>
+    <div class="heading">Posted while you sleep.</div>
+    <div class="yt-card">
+      <div class="thumbnail">
+        <div class="thumb-title">The Future of<br>AI in Medicine</div>
+        <div class="thumb-icon">🧠</div>
+        <div class="badge">Auto · Published by AI</div>
+      </div>
+      <div class="yt-meta">
+        <div class="video-title">The Future of AI in Medicine — How Algorithms Are Saving Lives</div>
+        <div class="channel-row">
+          <div class="ch-avatar">T</div>
+          <div>
+            <div class="ch-name">TubeAssistant Channel</div>
+            <div class="ch-subs"><span id="sub-count">0</span> subscribers</div>
+          </div>
+          <div class="subscribe-btn">Subscribe</div>
+        </div>
+        <div class="stats">
+          <div><span class="views"><span id="view-count">0</span></span> views</div>
+          <div>•</div>
+          <div>Just now</div>
+          <div>•</div>
+          <div>👍 <span id="like-count">0</span></div>
+          <div>•</div>
+          <div>💬 <span id="cmt-count">0</span> comments</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 5: TERMINAL -->
+  <div class="scene" id="s5">
+    <div class="label">Get started</div>
+    <div class="heading">Three commands.</div>
+    <div class="sub">Channel running in under a minute.</div>
+    <div class="terminal">
+      <div class="term-bar">
+        <div class="dot r"></div>
+        <div class="dot y"></div>
+        <div class="dot g"></div>
+        <span class="term-title">~/projects · tube-assistant</span>
+      </div>
+      <div class="term-body">
+        <div class="row l1">
+          <span class="prompt">$</span><span class="cmd">pip install uv</span>
+        </div>
+        <div class="out l1-out"><span class="check">✓</span> uv installed</div>
+        <div class="row l2">
+          <span class="prompt">$</span><span class="cmd">uv tool install <span class="dim2">git+github.com/metiu1/tube-assistant</span></span>
+        </div>
+        <div class="out l2-out"><span class="check">✓</span> tube-assistant ready · 15 AI providers available</div>
+        <div class="row l3">
+          <span class="prompt">$</span><span class="cmd">tube-assistant</span><span class="cursor"></span>
+        </div>
+        <div class="out l3-out"><span class="check">✓</span> Setup wizard launched — agent online</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 6: CTA -->
+  <div class="scene" id="s6">
+    <div class="glow"></div>
+    <div class="small">TubeAssistant</div>
+    <div class="l1">Start today.</div>
+    <div class="l2">Post forever.</div>
+    <div class="divider"></div>
+    <div class="url">github.com/metiu1/tube-assistant</div>
+  </div>
+
+  <div class="grain"></div>
+</div>
+
+<script>
+  // Timeline definition
+  const SCENES = [
+    { id: 's1', start:  0.0, end:  5.0 },
+    { id: 's2', start:  5.0, end: 10.0 },
+    { id: 's3', start: 10.0, end: 18.0 },
+    { id: 's4', start: 18.0, end: 26.0 },
+    { id: 's5', start: 26.0, end: 34.0 },
+    { id: 's6', start: 34.0, end: 40.0 },
+  ];
+
+  // Pre-resolve DOM
+  for (const s of SCENES) {
+    s.el = document.getElementById(s.id);
+  }
+
+  // helpers
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+  function clamp(x, a=0, b=1) { return Math.min(b, Math.max(a, x)); }
+  function fmt(n) { return Math.floor(n).toLocaleString('en-US'); }
+
+  // Crossfade adjacent scenes
+  function sceneOpacity(t, s) {
+    const fadeIn = 0.4;
+    const fadeOut = 0.4;
+    if (t < s.start - fadeOut) return 0;
+    if (t > s.end + fadeOut) return 0;
+    if (t < s.start) return easeOut((t - (s.start - fadeOut)) / fadeOut);
+    if (t > s.end) return 1 - easeOut((t - s.end) / fadeOut);
+    return 1;
+  }
+
+  window.setTime = function (t) {
+    document.documentElement.style.setProperty('--t', t);
+    for (const s of SCENES) {
+      const lt = clamp((t - s.start) / (s.end - s.start));
+      s.el.style.setProperty('--lt', lt);
+      const op = sceneOpacity(t, s);
+      s.el.style.opacity = op.toFixed(3);
+    }
+
+    // Scene 4: animate view/sub/like counters
+    if (t >= 18.0 && t <= 26.0) {
+      const lt = clamp((t - 18.0) / 8.0);
+      const eased = easeOut(lt);
+      const views = lerp(0, 47283, eased);
+      const subs  = lerp(0, 1247, eased);
+      const likes = lerp(0, 2841, eased);
+      const cmts  = lerp(0, 184, eased);
+      const vc = document.getElementById('view-count');
+      const sc = document.getElementById('sub-count');
+      const lc = document.getElementById('like-count');
+      const cc = document.getElementById('cmt-count');
+      if (vc) vc.textContent = fmt(views);
+      if (sc) sc.textContent = fmt(subs);
+      if (lc) lc.textContent = fmt(likes);
+      if (cc) cc.textContent = fmt(cmts);
+    }
+
+    // Scene 3: typing dots — animate amplitude based on absolute t for variation
+    const dots = document.querySelectorAll('#s3 .typing span');
+    if (dots.length) {
+      const phase = t * 4;
+      dots.forEach((d, i) => {
+        const v = 0.4 + 0.6 * Math.max(0, Math.sin(phase - i * 0.5));
+        d.style.opacity = v.toFixed(2);
+      });
+    }
+  };
+
+  // signal ready for Playwright
+  window.READY = false;
+  document.fonts.ready.then(() => {
+    window.setTime(0);
+    window.READY = true;
+  });
+</script>
+</body>
+</html>
