@@ -1430,6 +1430,20 @@ def start_bot() -> None:
             ("memoria",        "Vedi memoria lungo termine"),
             ("dimentica",      "Rimuovi un ricordo"),
         ])
+        async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+            from telegram.error import Conflict
+            if isinstance(context.error, Conflict):
+                print(
+                    "\n[Telegram] ERRORE FATALE: un'altra istanza del bot è già in esecuzione.\n"
+                    "Ferma tutti i processi tube-assistant e riavvia:\n"
+                    "  pkill -f tube-assistant\n"
+                    "  tube-assistant\n",
+                    flush=True,
+                )
+                os._exit(1)
+            print(f"[Telegram] Errore non gestito: {context.error}", flush=True)
+
+        app.add_error_handler(_on_error)
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
         print("[Telegram] Bot polling started")
