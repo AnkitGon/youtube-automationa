@@ -1430,22 +1430,33 @@ def start_bot() -> None:
             ("memoria",        "Vedi memoria lungo termine"),
             ("dimentica",      "Rimuovi un ricordo"),
         ])
+        _conflict_count = {"n": 0}
+
         async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
             from telegram.error import Conflict
             if isinstance(context.error, Conflict):
-                print(
-                    "\n[Telegram] ERRORE FATALE: un'altra istanza del bot è già in esecuzione.\n"
-                    "Ferma tutti i processi tube-assistant e riavvia:\n"
-                    "  pkill -f tube-assistant\n"
-                    "  tube-assistant\n",
-                    flush=True,
-                )
-                os._exit(1)
-            print(f"[Telegram] Errore non gestito: {context.error}", flush=True)
+                _conflict_count["n"] += 1
+                if _conflict_count["n"] == 1:
+                    print(
+                        "[Telegram] Conflict: un'altra sessione è attiva (o connessione stale).\n"
+                        "           Attendo 60s che scada. Se il problema persiste, ferma\n"
+                        "           tutti i processi tube-assistant sulle altre macchine.",
+                        flush=True,
+                    )
+                elif _conflict_count["n"] >= 4:
+                    print(
+                        "\n[Telegram] FATALE: Conflict persiste dopo 4 tentativi.\n"
+                        "Ferma l'altra istanza (PC/server) e riavvia:\n"
+                        "  pkill -f tube-assistant   (su ogni macchina)\n",
+                        flush=True,
+                    )
+                    os._exit(1)
+                return
+            print(f"[Telegram] Errore: {context.error}", flush=True)
 
         app.add_error_handler(_on_error)
         await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
+        await app.updater.start_polling(drop_pending_updates=True, read_timeout=30, write_timeout=30)
         print("[Telegram] Bot polling started")
 
         while True:
