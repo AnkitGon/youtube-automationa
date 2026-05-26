@@ -27,4 +27,8 @@ def get_credentials() -> Credentials:
 
     with open(TOKEN_FILE, "w", encoding="utf-8") as f:
         f.write(creds.to_json())
+    try:
+        os.chmod(TOKEN_FILE, 0o600)
+    except OSError:
+        pass
     return creds

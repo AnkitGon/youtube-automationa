@@ -1,7 +1,7 @@
 """
 Internal subprocess launcher.
 Usage: python -m youtube_ai_agent._launcher <workspace_path> <command>
-Commands: agent | main | wizard
+Commands: agent | main | dry-run | wizard
 
 IMPORTANT: os.chdir(workspace) MUST happen before any moduli import so that
 all module-level relative path constants resolve to the correct workspace dir.
@@ -33,6 +33,9 @@ def _run():
     elif command == "main":
         from youtube_ai_agent._one_shot import run
         run()
+    elif command == "dry-run":
+        from youtube_ai_agent._one_shot import run
+        run(dry_run=True)
     elif command == "wizard":
         from youtube_ai_agent._wizard import main
         main()

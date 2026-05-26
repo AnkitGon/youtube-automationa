@@ -6,6 +6,7 @@ import requests
 CACHE_DIR = "cache/pexels"
 PEXELS_SEARCH = "https://api.pexels.com/videos/search"
 INDEX_PATH = os.path.join(CACHE_DIR, "index.json")
+MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_CLIP_DOWNLOAD_MB", "250")) * 1024 * 1024
 
 
 def _load_index() -> dict:
@@ -44,8 +45,20 @@ def _cache_variants(keyword: str) -> list[str]:
 def _download(url: str, dest: str) -> None:
     with requests.get(url, stream=True, timeout=60) as r:
         r.raise_for_status()
+        content_type = r.headers.get("content-type", "")
+        if content_type and "video" not in content_type and "octet-stream" not in content_type:
+            raise RuntimeError(f"Unexpected clip content-type: {content_type}")
+        expected = r.headers.get("content-length")
+        if expected and int(expected) > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(f"Clip too large: {int(expected) // (1024 * 1024)} MB")
+        downloaded = 0
         with open(dest, "wb") as f:
             for chunk in r.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                downloaded += len(chunk)
+                if downloaded > MAX_DOWNLOAD_BYTES:
+                    raise RuntimeError(f"Clip exceeded limit: {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
                 f.write(chunk)
 
 

@@ -17,6 +17,10 @@ DEFAULT_PREF = {
     "durata_target_minuti": 8,
     "musica_volume": 0.1,
     "note_libere": "",
+    "thumbnail_testo_mostra": True,          # mostra titolo sulla copertina
+    "thumbnail_testo_colore": "255,255,255", # R,G,B oppure nome (bianco/rosso/giallo...)
+    "thumbnail_testo_posizione": "basso",    # alto / basso
+    "tts_voce": "en-US-GuyNeural",          # voce Edge TTS (es. it-IT-DiegoNeural)
 }
 
 
@@ -43,6 +47,10 @@ def _lista_da_testo(valore: str) -> list[str]:
 
 def _converti_valore(chiave: str, valore):
     default_val = DEFAULT_PREF[chiave]
+    if isinstance(default_val, bool):
+        if isinstance(valore, bool):
+            return valore
+        return str(valore).strip().lower() in ("true", "1", "si", "sì", "yes", "vero")
     if isinstance(default_val, list):
         if isinstance(valore, list):
             return [str(v).strip() for v in valore if str(v).strip()]
@@ -159,6 +167,76 @@ def aggiorna_da_testo(testo: str) -> dict:
     if note_match:
         set_pref("note_libere", note_match.group(1))
 
+    _COLORI_IT = {
+        "bianco": "255,255,255", "nero": "0,0,0",
+        "rosso": "255,50,50", "giallo": "255,220,0",
+        "verde": "50,255,100", "blu": "50,150,255",
+        "arancione": "255,140,0", "viola": "180,50,255",
+        "cyan": "0,220,255", "rosa": "255,100,180",
+        "white": "255,255,255", "red": "255,50,50",
+        "yellow": "255,220,0", "blue": "50,150,255",
+        "green": "50,255,100", "orange": "255,140,0",
+    }
+    testo_col_match = re.search(
+        r"\b(?:testo|titolo|scritte?)\b.{0,30}(?:colore?|color)\b[^\w]*(\w+)|"
+        r"\b(?:colore?|color)\b[^\w]*(?:del\s+)?(?:testo|titolo)\b[^\w]*(\w+)",
+        t, re.IGNORECASE
+    )
+    if not testo_col_match:
+        # pattern "testo rosso", "titolo giallo", "scritte rosse"
+        testo_col_match2 = re.search(
+            r"\b(?:testo|titolo|scritte?)\b\s+(?:in\s+|di\s+|colore\s+)?(" + "|".join(_COLORI_IT.keys()) + r")\b",
+            t, re.IGNORECASE
+        )
+        if testo_col_match2:
+            nome = testo_col_match2.group(1).lower()
+            set_pref("thumbnail_testo_colore", _COLORI_IT.get(nome, nome))
+    else:
+        nome = (testo_col_match.group(1) or testo_col_match.group(2) or "").lower()
+        if nome in _COLORI_IT:
+            set_pref("thumbnail_testo_colore", _COLORI_IT[nome])
+
+    if re.search(r"\b(?:testo|titolo|scritte?)\b.{0,20}\b(?:in\s+)?alto\b", t):
+        set_pref("thumbnail_testo_posizione", "alto")
+    elif re.search(r"\b(?:testo|titolo|scritte?)\b.{0,20}\b(?:in\s+)?basso\b", t):
+        set_pref("thumbnail_testo_posizione", "basso")
+
+    if re.search(r"\b(?:no\s+testo|senza\s+testo|niente\s+testo|rimuovi\s+testo|togli\s+testo|no\s+titolo|senza\s+titolo|no\s+scritte?|senza\s+scritte?)\b", t):
+        set_pref("thumbnail_testo_mostra", False)
+    elif re.search(r"\b(?:aggiungi\s+testo|metti\s+testo|con\s+testo|mostra\s+testo|mostra\s+titolo|testo\s+sulla\s+copertina|titolo\s+sulla\s+copertina)\b", t):
+        set_pref("thumbnail_testo_mostra", True)
+
+    _VOCI_PRESET = {
+        # italiano
+        "italiano": "it-IT-DiegoNeural", "italiana": "it-IT-DiegoNeural",
+        "italian": "it-IT-DiegoNeural",
+        "italiano femmina": "it-IT-ElsaNeural", "voce femminile italiana": "it-IT-ElsaNeural",
+        "italiana femmina": "it-IT-ElsaNeural",
+        # inglese
+        "inglese": "en-US-GuyNeural", "english": "en-US-GuyNeural",
+        "inglese femmina": "en-US-AriaNeural", "voce femminile inglese": "en-US-AriaNeural",
+        "british": "en-GB-SoniaNeural", "inglese british": "en-GB-SoniaNeural",
+        # genere
+        "femmina": "en-US-AriaNeural", "femminile": "en-US-AriaNeural",
+        "donna": "en-US-AriaNeural", "maschio": "en-US-GuyNeural",
+        "maschile": "en-US-GuyNeural", "uomo": "en-US-GuyNeural",
+    }
+    voce_match = re.search(
+        r"\b(?:voce|voice|tts)\b[^\w]{0,10}(.{3,40}?)(?:\s*$|[,.])",
+        original, re.IGNORECASE
+    )
+    if voce_match:
+        raw_voce = voce_match.group(1).strip().lower()
+        if raw_voce in _VOCI_PRESET:
+            set_pref("tts_voce", _VOCI_PRESET[raw_voce])
+        elif re.match(r"[a-z]{2}-[A-Z]{2}-\w+Neural", voce_match.group(1).strip()):
+            set_pref("tts_voce", voce_match.group(1).strip())
+    else:
+        for pattern, voce in _VOCI_PRESET.items():
+            if re.search(r"\b" + re.escape(pattern) + r"\b", t) and "voce" in t:
+                set_pref("tts_voce", voce)
+                break
+
     if modifiche:
         salva(pref)
     return modifiche
@@ -186,6 +264,10 @@ def come_contesto() -> str:
         f"- Lingua: {pref['lingua']}\n"
         f"- Stile clip: {pref['stile_clip']}\n"
         f"- Stile thumbnail: {pref['stile_thumbnail']}\n"
+        f"- Testo sulla copertina: {'sì' if pref.get('thumbnail_testo_mostra', True) else 'no'}\n"
+        f"- Colore testo copertina: {pref.get('thumbnail_testo_colore', '255,255,255')}\n"
+        f"- Posizione testo copertina: {pref.get('thumbnail_testo_posizione', 'basso')}\n"
+        f"- Voce TTS: {pref.get('tts_voce', 'en-US-GuyNeural')}\n"
         f"- Argomenti preferiti: {', '.join(pref['argomenti_preferiti'])}\n"
         f"- Argomenti da evitare: {', '.join(pref['argomenti_evitare']) or 'nessuno'}\n"
         f"- Durata target: {pref['durata_target_minuti']} minuti\n"

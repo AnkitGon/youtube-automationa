@@ -17,7 +17,7 @@ VIDEO_PATH = "output/output_finale.mp4"
 THUMB_PATH = "output/thumbnail.jpg"
 
 
-def run():
+def run(dry_run: bool = False):
     os.makedirs("output", exist_ok=True)
 
     print("=== [Analytics] Reading channel performance ===")
@@ -65,6 +65,11 @@ def run():
         thumbnail_description=content.get("thumbnail_description"),
     )
     print(f"  Saved: {THUMB_PATH}")
+
+    if dry_run:
+        print("\n=== [F] Dry run ===")
+        print("  Upload skipped. Video and thumbnail are ready in output/.")
+        return
 
     print("\n=== [F] Publishing to YouTube ===")
     video_id = pubblica_video(VIDEO_PATH, THUMB_PATH, content)

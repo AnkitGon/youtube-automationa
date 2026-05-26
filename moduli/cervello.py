@@ -21,12 +21,14 @@ Strategy guidance:
 - Hook strength: {hook_strength}
 - Notes: {strategy_notes}
 
+Target duration: {target_minutes} minutes = ~{target_words} words
+
 Reply ONLY with valid JSON, exact structure:
 {{
   "title": "Compelling title, max 70 chars",
   "description": "SEO-optimized description, 200-300 words, include keywords naturally",
   "tags": ["tag1", "tag2", "tag3"],
-  "script": "Full narration in English. Engaging, clear, conversational. Target 8 minutes = ~1100-1200 words. No headers or sections, flowing prose.",
+  "script": "Full narration. Engaging, clear, conversational. Exactly {target_words} words. No headers or sections, flowing prose.",
   "video_keywords": [
     "AI neural network visualization",
     "futuristic city technology",
@@ -38,18 +40,27 @@ Reply ONLY with valid JSON, exact structure:
 Rules:
 - title: follow the title_style guidance above
 - tags: 12-15 relevant tags
-- script: exactly 1100-1200 words, engaging pace, no bullet points
+- script: exactly {target_words} words, engaging pace, no bullet points
 - video_keywords: 12-18 unique English phrases describing stock video scenes (2-4 words each, concrete and visual)
 - thumbnail_description: ultra-detailed FLUX.1 prompt as described above, always present
 """
 
 
 def _parse_json(text: str) -> dict:
-    print(f"[DEBUG raw response]\n{text[:500]}\n---", flush=True)
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if not match:
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    if start < 0:
         raise ValueError("No JSON found in model response")
-    return json.loads(match.group())
+    try:
+        data, _ = decoder.raw_decode(text[start:])
+    except json.JSONDecodeError as e:
+        snippet = text[:500].replace("\n", "\\n")
+        raise ValueError(f"Invalid JSON from model: {e}; response starts with: {snippet}") from e
+    required = {"title", "description", "tags", "script", "video_keywords"}
+    missing = required - set(data)
+    if missing:
+        raise ValueError(f"Model JSON missing required fields: {', '.join(sorted(missing))}")
+    return data
 
 
 def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
@@ -64,11 +75,19 @@ def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
 
 def genera_contenuto(topic: str, strategy: dict = None) -> dict:
     strategy = strategy or {}
+    try:
+        from moduli.preferenze import carica
+        target_minutes = carica().get("durata_target_minuti", 8)
+    except Exception:
+        target_minutes = 8
+    target_words = int(target_minutes * 130)  # ~130 parole/min a velocità TTS normale
     prompt = CONTENT_PROMPT.format(
         topic=topic,
         title_style=strategy.get("title_style", "curiosity-driven"),
         tone=strategy.get("tone", "confident and informative"),
         hook_strength=strategy.get("hook_strength", "medium"),
         strategy_notes=strategy.get("notes", "Standard approach"),
+        target_minutes=target_minutes,
+        target_words=target_words,
     )
     return _parse_json(chat_ollama(prompt, max_tokens=8192))

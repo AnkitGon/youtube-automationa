@@ -74,8 +74,8 @@ from moduli.notifiche import (
 notify_start, notify_step, notify_done, notify_error, notify_analytics
 )
 from moduli.telegram_handler import start_bot
+from moduli.state_io import load_state as _load_state, save_state as _save_state
 
-STATE_FILE = "state.json"
 AUDIO_PATH = "output/narration.mp3"
 VIDEO_PATH = "output/output_finale.mp4"
 THUMB_PATH = "output/thumbnail.jpg"
@@ -83,17 +83,16 @@ THUMB_PATH = "output/thumbnail.jpg"
 DEFAULT_VIDEOS_PER_DAY = 1
 DEFAULT_TRIGGER_HOURS = [14]
 
-
-def _load_state() -> dict:
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            return json.load(f)
-    return {"last_run_date": None, "recent_topics": [], "video_ids": [], "topic_queue": []}
+_pipeline_step = "init"
 
 
-def _save_state(state: dict) -> None:
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+class PipelineAbort(RuntimeError):
+    pass
+
+
+def _check_abort() -> None:
+    if _load_state().get("abort_pipeline"):
+        raise PipelineAbort("Pipeline interrotta su richiesta Telegram")
 
 
 def _runs_today(state: dict) -> int:
@@ -131,14 +130,18 @@ def _should_run(state: dict, now: datetime) -> bool:
 
 def _log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}", flush=True)
+    line = f"[{ts}] {msg}"
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(line.encode(encoding, errors="replace").decode(encoding), flush=True)
 
 
-def run_pipeline(state: dict) -> None:
+def run_pipeline(state: dict, dry_run: bool = False) -> None:
+    global _pipeline_step
     os.makedirs("output", exist_ok=True)
     _log("━━━ PIPELINE AVVIATA ━━━")
 
     # ── ANALYTICS ──────────────────────────────────────────────────────────
+    _pipeline_step = "analytics"
     _log("📊 [1/7] Analytics — lettura performance canale...")
     notify_step("strategy", "Analizzo le performance del canale...")
     try:
@@ -157,9 +160,11 @@ def run_pipeline(state: dict) -> None:
         performance = []
 
     strategy = calcola_strategia(performance)
+    _check_abort()
     _log(f"  → Strategia: {strategy.get('notes', '')}")
 
     # ── TOPIC & CONTENUTO ───────────────────────────────────────────────────
+    _pipeline_step = "contenuto"
     _log("🧠 [2/7] Topic & Contenuto — generazione script...")
     queue = state.get("topic_queue", [])
     if queue:
@@ -178,16 +183,20 @@ def run_pipeline(state: dict) -> None:
     _log(f"  → Tag: {', '.join(content.get('tags', [])[:5])}...")
     _log(f"  → Keyword video: {', '.join(content.get('video_keywords', [])[:4])}...")
     script_words = len(content.get('script', '').split())
+    _check_abort()
     _log(f"  → Script: ~{script_words} parole")
 
     # ── AUDIO ───────────────────────────────────────────────────────────────
+    _pipeline_step = "audio"
     _log("🎙️ [3/7] Audio — sintesi vocale con Edge TTS...")
     notify_step("audio", f"Sintetizzo audio: <i>{content['title']}</i>")
     genera_audio(content["script"], AUDIO_PATH)
     size = os.path.getsize(AUDIO_PATH) // 1024
+    _check_abort()
     _log(f"  → Audio salvato: {AUDIO_PATH} ({size} KB)")
 
     # ── CLIP ────────────────────────────────────────────────────────────────
+    _pipeline_step = "clips"
     _log("🎞️ [4/7] Clip — scarico video da Pexels...")
     notify_step("clips", "Scarico clip video da Pexels...")
     clip_paths = {}
@@ -209,13 +218,17 @@ def run_pipeline(state: dict) -> None:
         raise RuntimeError(msg)
 
     # ── MONTAGGIO ───────────────────────────────────────────────────────────
+    _check_abort()
+    _pipeline_step = "montaggio"
     _log("⚙️ [5/7] Montaggio — rendering video (5-15 min)...")
     notify_step("rendering", "Montaggio in corso (5-15 min)...")
     monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH)
+    _check_abort()
     size = os.path.getsize(VIDEO_PATH) // (1024 * 1024)
     _log(f"  → Video salvato: {VIDEO_PATH} ({size} MB)")
 
     # ── THUMBNAIL ───────────────────────────────────────────────────────────
+    _pipeline_step = "thumbnail"
     _log("🖼️ [6/7] Thumbnail — generazione con AI...")
     notify_step("thumbnail", "Genero la thumbnail con AI...")
     genera_thumbnail(
@@ -225,29 +238,52 @@ def run_pipeline(state: dict) -> None:
     _log(f"  → Thumbnail salvata: {THUMB_PATH}")
 
     # ── UPLOAD ──────────────────────────────────────────────────────────────
+    _check_abort()
+    _pipeline_step = "upload"
+    if dry_run:
+        _pipeline_step = "dry_run"
+        _log("DRY RUN: upload saltato. Video e thumbnail sono pronti in output/.")
+        return
     _log("📤 [7/7] Upload — caricamento su YouTube...")
     notify_step("upload", "Upload su YouTube in corso...")
     run_index = _runs_today(state)
-    publish_at = calcola_publish_slots(state, run_index)
-    _log(f"  → Programmato per: {publish_at.strftime('%d/%m/%Y %H:%M UTC')}")
-    video_id = pubblica_video(VIDEO_PATH, THUMB_PATH, content, publish_at)
+    immediate = bool(state.get("publish_immediately"))
+    publish_at = None if immediate else calcola_publish_slots(state, run_index)
+    if immediate:
+        _log("  -> Pubblicazione immediata")
+    else:
+        _log(f"  → Programmato per: {publish_at.strftime('%d/%m/%Y %H:%M UTC')}")
+    video_id = pubblica_video(
+        VIDEO_PATH,
+        THUMB_PATH,
+        content,
+        publish_at,
+        immediate=immediate,
+        privacy_status=os.environ.get("YOUTUBE_IMMEDIATE_PRIVACY", "public") if immediate else "private",
+    )
     _log(f"  → ✓ https://youtu.be/{video_id}")
 
     notify_done(
         title=content["title"],
         video_id=video_id,
-        publish_time=publish_at.strftime("%d/%m/%Y %H:%M UTC"),
+        publish_time="immediata" if immediate else publish_at.strftime("%d/%m/%Y %H:%M UTC"),
         thumb_path=THUMB_PATH,
     )
 
-    recent = state.get("recent_topics", [])
+    # Ricarica lo state più recente (il bot Telegram può aver scritto durante la pipeline)
+    # e applica solo le modifiche prodotte dalla pipeline — evita lost-update.
+    _pipeline_step = "salvataggio"
+    fresh = _load_state()
+    recent = fresh.get("recent_topics", [])
     recent.insert(0, topic)
-    state["recent_topics"] = recent[:10]
-    state["last_run_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    state["video_ids"] = ([video_id] + state.get("video_ids", []))[:20]
-    state.pop("force_run", None)
-    _increment_runs_today(state)
-    _save_state(state)
+    fresh["recent_topics"] = recent[:10]
+    fresh["last_run_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    fresh["video_ids"] = ([video_id] + fresh.get("video_ids", []))[:20]
+    fresh.pop("force_run", None)
+    fresh.pop("publish_immediately", None)
+    fresh.pop("abort_pipeline", None)
+    _increment_runs_today(fresh)
+    _save_state(fresh)
     _log("━━━ PIPELINE COMPLETATA ━━━\n")
 
 
@@ -263,7 +299,28 @@ def _update_best_hours(state: dict, performance: list) -> None:
         4: [9, 13, 17, 21],
         5: [8, 11, 14, 17, 20],
     }
-    hours = spreads.get(videos_per_day, [20])
+    scored: dict[int, list[float]] = {}
+    for video in performance:
+        hour = video.get("published_hour_utc")
+        if hour is None:
+            continue
+        views = float(video.get("views") or 0)
+        ctr = float(video.get("ctr_percent") or 0)
+        duration = max(float(video.get("duration_seconds") or 1), 1.0)
+        retention = float(video.get("avg_view_duration_seconds") or 0) / duration * 100
+        score = views + (ctr * 25) + (retention * 5)
+        scored.setdefault(int(hour), []).append(score)
+
+    if scored:
+        ranked = sorted(
+            ((sum(scores) / len(scores), hour) for hour, scores in scored.items()),
+            reverse=True,
+        )
+        hours = sorted(hour for _, hour in ranked[:videos_per_day])
+        fallback = [h for h in spreads.get(videos_per_day, [20]) if h not in hours]
+        hours = sorted((hours + fallback)[:videos_per_day])
+    else:
+        hours = spreads.get(videos_per_day, [20])
     state["best_hours_utc"] = hours
     print(f"  Auto-scheduling: best hours set to {hours}")
 
@@ -274,6 +331,12 @@ def _cleanup_stale_state() -> None:
     changed = False
     if state.pop("force_run", None) is not None:
         _log("  → force_run rimosso (stale da sessione precedente)")
+        changed = True
+    if state.pop("publish_immediately", None) is not None:
+        _log("  -> publish_immediately rimosso (stale da sessione precedente)")
+        changed = True
+    if state.pop("abort_pipeline", None) is not None:
+        _log("  -> abort_pipeline rimosso (stale da sessione precedente)")
         changed = True
     # rimuovi topic "…" o vuoti finiti in coda per errore
     queue = state.get("topic_queue", [])
@@ -317,14 +380,31 @@ def main():
 
         if _should_run(state, now):
             reason = "FORCED" if state.get("force_run") else "scheduled"
-            print(f"\n[{now.strftime('%Y-%m-%d %H:%M UTC')}] Trigger ({reason}) — starting pipeline")
+            _log(f"Trigger ({reason}) — avvio pipeline")
+            # Pulisci force_run PRIMA di partire: se la pipeline crasha,
+            # il flag è già rimosso e il daemon non entra in loop infinito.
+            state.pop("force_run", None)
+            state.pop("abort_pipeline", None)
+            _save_state(state)
             try:
                 run_pipeline(state)
                 state = _load_state()
             except Exception:
                 err = traceback.format_exc()
-                print(err)
-                notify_error(err)
+                _log(err)
+                if isinstance(sys.exc_info()[1], PipelineAbort):
+                    state = _load_state()
+                    state.pop("abort_pipeline", None)
+                    _save_state(state)
+                    notify_error("Pipeline interrotta su richiesta Telegram.")
+                    continue
+                last_line = err.strip().split("\n")[-1][:300]
+                notify_error(
+                    f"Crash allo step <b>{_pipeline_step}</b>\n\n"
+                    f"<code>{last_line}</code>\n\n"
+                    f"Controlla i log. Usa /forza per riprovare."
+                )
+                state = _load_state()
 
         time.sleep(60)
 

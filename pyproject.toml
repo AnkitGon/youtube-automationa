@@ -1,3 +1,4 @@
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -26,6 +27,7 @@ dependencies = [
     "openai>=1.30.0",
     "anthropic>=0.25.0",
     "google-generativeai>=0.7.0",
+    "huggingface-hub>=0.23.0",
     "mistralai>=1.0.0",
     "groq>=0.9.0",
     "cohere>=5.0.0",
@@ -33,6 +35,9 @@ dependencies = [
 
 [project.scripts]
 tube-assistant = "youtube_ai_agent.cli:main"
+
+[tool.setuptools]
+py-modules = ["agent", "main", "wizard"]
 
 # Install both youtube_ai_agent/ (CLI) and moduli/ (core logic) as top-level packages.
 # This means `from moduli.xxx import yyy` continues to work unchanged in all modules.

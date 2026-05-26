@@ -8,13 +8,85 @@ import asyncio
 import threading
 import requests
 import html
-import shutil
+import uuid
 from datetime import datetime, timezone, timedelta
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 MAX_HISTORY = 20  # messaggi per chat
+PENDING_ACTION_TTL_SECONDS = 3600
+
+
+def _h(value) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _authorized_chat_ids() -> set[str]:
+    raw = ",".join(
+        value for value in (
+            os.environ.get("TELEGRAM_CHAT_ID", ""),
+            os.environ.get("TELEGRAM_ALLOWED_CHAT_IDS", ""),
+        )
+        if value
+    )
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _is_authorized(update: Update) -> bool:
+    allowed = _authorized_chat_ids()
+    if not allowed:
+        return False
+    chat = update.effective_chat
+    return bool(chat and str(chat.id) in allowed)
+
+
+async def _deny_unauthorized(update: Update) -> None:
+    chat = update.effective_chat
+    print(f"[Telegram] Unauthorized chat blocked: {getattr(chat, 'id', None)}", flush=True)
+    if update.message:
+        await update.message.reply_text("Accesso non autorizzato.")
+
+
+def _authorized(handler):
+    async def _wrapped(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if not _is_authorized(update):
+            await _deny_unauthorized(update)
+            return
+        return await handler(update, ctx)
+    return _wrapped
+
+
+def _pending_actions(state: dict) -> list[dict]:
+    now = datetime.now(timezone.utc).timestamp()
+    pending = []
+    for action in state.get("pending_actions", []):
+        try:
+            created = float(action.get("created_at", 0))
+        except (TypeError, ValueError):
+            created = 0
+        if now - created <= PENDING_ACTION_TTL_SECONDS:
+            pending.append(action)
+    state["pending_actions"] = pending
+    return pending
+
+
+def _queue_pending_action(state: dict, action_type: str, payload: str, label: str) -> str:
+    pending = _pending_actions(state)
+    action_id = uuid.uuid4().hex[:8]
+    pending.append({
+        "id": action_id,
+        "type": action_type,
+        "payload": payload,
+        "label": label,
+        "created_at": datetime.now(timezone.utc).timestamp(),
+    })
+    state["pending_actions"] = pending
+    return (
+        f"Richiede conferma: <b>{_h(label)}</b>\n"
+        f"ID: <code>{action_id}</code>\n"
+        f"Usa <code>/conferma {action_id}</code> entro 1 ora, oppure <code>/annulla {action_id}</code>."
+    )
 
 _AGENT_LANGUAGE = os.getenv("AGENT_LANGUAGE", "English")
 
@@ -48,7 +120,14 @@ REAL ACTIONS (tags executed automatically — ALWAYS use them when requested):
 [AGGIORNA_DESC: description text] → updates the channel description via API
 [AGGIORNA_KEYWORDS: keyword1, keyword2] → updates channel keywords via API
 [RICORDA: fact] → saves to long-term memory (preferences, channel info, instructions)
-[SETPREF: key=value] → updates video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text). ALWAYS use this tag when the user expresses a preference about video type.
+[SETPREF: key=value] → updates video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false — show/hide title text on thumbnail), thumbnail_testo_colore (color name like bianco/rosso/giallo/blu/verde/arancione/viola/cyan/rosa or R,G,B like 255,220,0), thumbnail_testo_posizione (alto/basso — text position on thumbnail), tts_voce (Edge TTS voice name — use exact format like en-US-GuyNeural, it-IT-DiegoNeural, it-IT-ElsaNeural, en-US-AriaNeural, en-GB-SoniaNeural). ALWAYS use this tag when the user expresses a preference about video type, thumbnail appearance, or voice.
+Examples of voice commands → correct tags:
+- "voce italiana" → [SETPREF: tts_voce=it-IT-DiegoNeural]
+- "voce femminile" → [SETPREF: tts_voce=en-US-AriaNeural]
+- "voce italiana femminile" → [SETPREF: tts_voce=it-IT-ElsaNeural]
+- "voce british" → [SETPREF: tts_voce=en-GB-SoniaNeural]
+- "video da 5 minuti" → [SETPREF: durata_target_minuti=5]
+- "video più corti, 3 minuti" → [SETPREF: durata_target_minuti=3]
 [DIMENTICA: text] → removes from memory
 [VIDEO_TITOLO: video_id | new title] → changes the title of an already published video
 [VIDEO_DESC: video_id | new description] → changes the description of an already published video
@@ -60,7 +139,12 @@ REAL ACTIONS (tags executed automatically — ALWAYS use them when requested):
 
 CRITICAL RULE ON SEARCHES: when the user asks for news or recent information, use the [WEB SEARCH] context already provided and answer with that data. Do NOT add topics to the queue, do NOT use [AGGIUNGI_TOPIC] or [FORZA_ORA].
 
-CRITICAL RULE ON PREFERENCES/SETTINGS: when the user changes a setting or style (thumbnail style, clip style, pace, language, volume, topics to avoid, etc.) use ONLY [SETPREF: key=value]. NEVER add [FORZA_ORA], [AGGIUNGI_TOPIC] or [PRIORITA_TOPIC] — changing a preference does NOT mean they want a new video now.
+CRITICAL RULE ON PREFERENCES/SETTINGS: when the user changes a setting or style (thumbnail style, clip style, pace, language, volume, topics to avoid, thumbnail text color/position/visibility, etc.) use ONLY [SETPREF: key=value]. NEVER add [FORZA_ORA], [AGGIUNGI_TOPIC] or [PRIORITA_TOPIC] — changing a preference does NOT mean they want a new video now.
+Examples of thumbnail text commands → correct tags:
+- "metti il testo giallo" → [SETPREF: thumbnail_testo_colore=giallo]
+- "testo in alto" → [SETPREF: thumbnail_testo_posizione=alto]
+- "no testo sulla copertina" → [SETPREF: thumbnail_testo_mostra=false]
+- "aggiungi il titolo rosso in alto" → [SETPREF: thumbnail_testo_colore=rosso] + [SETPREF: thumbnail_testo_posizione=alto] + [SETPREF: thumbnail_testo_mostra=true]
 
 CRITICAL RULE ON TAGS: only use the tags listed above. Do NOT invent tags — they won't be executed. If no suitable tag exists, perform the action with words.
 
@@ -229,6 +313,90 @@ def _ask_ai(user_text: str, history: list, state: dict) -> tuple[str, list]:
     return reply, new_history
 
 
+def _execute_confirmed_action(state: dict, action: dict) -> str:
+    """Run an action that was previously queued for explicit user confirmation."""
+    action_type = action.get("type")
+    payload = (action.get("payload") or "").strip()
+
+    if action_type == "FORZA_ORA":
+        queue = state.get("topic_queue", [])
+        if payload and (not queue or queue[0] != payload):
+            queue.insert(0, payload)
+        state["topic_queue"] = queue
+        state["force_run"] = True
+        state["publish_immediately"] = True
+        checkpoint = "output/pipeline_checkpoint.json"
+        if os.path.exists(checkpoint):
+            os.remove(checkpoint)
+        return f"Confermato: pipeline immediata per <i>{_h(payload)}</i>."
+
+    if action_type == "RINOMINA_CANALE":
+        from moduli.canale import aggiorna_canale
+        res = aggiorna_canale(title=payload)
+        if "title_error" in res:
+            return _h(res["title_error"])
+        return f"Nome canale cambiato in <b>{_h(payload)}</b>."
+
+    if action_type == "AGGIORNA_DESC":
+        from moduli.canale import aggiorna_canale
+        aggiorna_canale(description=payload)
+        return "Descrizione canale aggiornata."
+
+    if action_type == "AGGIORNA_KEYWORDS":
+        from moduli.canale import aggiorna_canale
+        aggiorna_canale(keywords=payload)
+        return "Keyword canale aggiornate."
+
+    if action_type in {"VIDEO_TITOLO", "VIDEO_DESC", "VIDEO_TAGS"}:
+        from moduli.pubblica import aggiorna_video
+        parts = payload.split("|", 1)
+        if len(parts) != 2:
+            raise ValueError("Formato non valido: serve video_id | valore")
+        vid, value = parts[0].strip(), parts[1].strip()
+        if action_type == "VIDEO_TITOLO":
+            aggiorna_video(vid, title=value)
+            return f'Titolo aggiornato su <a href="https://youtu.be/{_h(vid)}">youtu.be/{_h(vid)}</a>.'
+        if action_type == "VIDEO_DESC":
+            aggiorna_video(vid, description=value)
+            return f'Descrizione aggiornata su <a href="https://youtu.be/{_h(vid)}">youtu.be/{_h(vid)}</a>.'
+        tags = [t.strip() for t in value.split(",") if t.strip()]
+        aggiorna_video(vid, tags=tags)
+        return f'Tag aggiornati su <a href="https://youtu.be/{_h(vid)}">youtu.be/{_h(vid)}</a>.'
+
+    if action_type == "VIDEO_THUMB":
+        from moduli.pubblica import aggiorna_video
+        thumb = "output/thumbnail.jpg"
+        if not os.path.exists(thumb):
+            raise FileNotFoundError("Thumbnail non trovata in output/thumbnail.jpg")
+        res = aggiorna_video(payload, thumbnail_path=thumb)
+        if res.get("thumbnail_error"):
+            raise RuntimeError(res["thumbnail_error"])
+        return f'Thumbnail caricata su <a href="https://youtu.be/{_h(payload)}">youtu.be/{_h(payload)}</a>.'
+
+    if action_type == "ELIMINA_TOPIC":
+        idx = int(payload) - 1
+        queue = state.get("topic_queue", [])
+        if idx < 0 or idx >= len(queue):
+            raise IndexError(f"Topic {payload} non esiste (coda ha {len(queue)} elementi)")
+        removed = queue.pop(idx)
+        state["topic_queue"] = queue
+        return f"Topic rimosso: <i>{_h(removed)}</i>. Rimanenti: {len(queue)}."
+
+    if action_type == "RIAVVIA_MONTAGGIO":
+        checkpoint = "output/pipeline_checkpoint.json"
+        if os.path.exists(checkpoint):
+            os.remove(checkpoint)
+        state["force_run"] = True
+        return "Checkpoint cancellato; pipeline riavviata."
+
+    if action_type == "BLOCCA_PIPELINE":
+        state["abort_pipeline"] = True
+        state.pop("force_run", None)
+        return "Abort confermato. La pipeline si fermera al prossimo checkpoint."
+
+    raise ValueError(f"Azione sconosciuta: {action_type}")
+
+
 def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_only: bool = False) -> tuple[str, list, list, list]:
     """Esegue i tag azione presenti nella risposta AI."""
     import re
@@ -256,6 +424,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _forza_ora(m):
         topic = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "FORZA_ORA", topic, f"avvia e pubblica subito: {topic}"))
+        return ""
         if not queue or queue[0] != topic:
             queue.insert(0, topic)
         state["force_run"] = True
@@ -308,6 +478,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _rinomina_canale(m):
         from moduli.canale import aggiorna_canale
         nome = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "RINOMINA_CANALE", nome, f"rinomina canale: {nome}"))
+        return ""
         try:
             res = aggiorna_canale(title=nome)
             if "title_error" in res:
@@ -321,6 +493,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _aggiorna_desc(m):
         from moduli.canale import aggiorna_canale
         desc = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "AGGIORNA_DESC", desc, "aggiorna descrizione canale"))
+        return ""
         try:
             aggiorna_canale(description=desc)
             api_results.append(f"✅ Descrizione canale aggiornata")
@@ -331,6 +505,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _aggiorna_keywords(m):
         from moduli.canale import aggiorna_canale
         kw = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "AGGIORNA_KEYWORDS", kw, f"aggiorna keyword: {kw}"))
+        return ""
         try:
             aggiorna_canale(keywords=kw)
             api_results.append(f"✅ Keyword canale aggiornate")
@@ -340,6 +516,9 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _video_titolo(m):
         from moduli.pubblica import aggiorna_video
+        payload = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "VIDEO_TITOLO", payload, "aggiorna titolo video"))
+        return ""
         parts = m.group(1).split("|", 1)
         if len(parts) != 2:
             api_results.append("❌ Formato: [VIDEO_TITOLO: video_id | nuovo titolo]")
@@ -354,6 +533,9 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _video_desc(m):
         from moduli.pubblica import aggiorna_video
+        payload = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "VIDEO_DESC", payload, "aggiorna descrizione video"))
+        return ""
         parts = m.group(1).split("|", 1)
         if len(parts) != 2:
             api_results.append("❌ Formato: [VIDEO_DESC: video_id | nuova descrizione]")
@@ -368,6 +550,9 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _video_tags(m):
         from moduli.pubblica import aggiorna_video
+        payload = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "VIDEO_TAGS", payload, "aggiorna tag video"))
+        return ""
         parts = m.group(1).split("|", 1)
         if len(parts) != 2:
             api_results.append("❌ Formato: [VIDEO_TAGS: video_id | tag1, tag2]")
@@ -383,6 +568,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _elimina_topic(m):
         raw = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "ELIMINA_TOPIC", raw, f"rimuovi topic {raw}"))
+        return ""
         try:
             idx = int(raw) - 1
         except ValueError:
@@ -398,6 +585,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         return ""
 
     def _riavvia_montaggio(m):
+        api_results.append(_queue_pending_action(state, "RIAVVIA_MONTAGGIO", "", "riavvia montaggio"))
+        return ""
         checkpoint = "output/pipeline_checkpoint.json"
         if os.path.exists(checkpoint):
             os.remove(checkpoint)
@@ -406,6 +595,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         return ""
 
     def _blocca_pipeline(m):
+        api_results.append(_queue_pending_action(state, "BLOCCA_PIPELINE", "", "blocca pipeline"))
+        return ""
         state["abort_pipeline"] = True
         state.pop("force_run", None)
         api_results.append("⛔ Pipeline bloccata. Si fermerà al prossimo step.")
@@ -414,6 +605,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _video_thumb(m):
         from moduli.pubblica import aggiorna_video
         vid = m.group(1).strip()
+        api_results.append(_queue_pending_action(state, "VIDEO_THUMB", vid, f"aggiorna thumbnail video {vid}"))
+        return ""
         thumb = "output/thumbnail.jpg"
         if not os.path.exists(thumb):
             api_results.append("❌ Thumbnail non trovata in output/thumbnail.jpg")
@@ -456,41 +649,7 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     return clean.strip(), added_topics, saved_memories, removed_memories, api_results
 
-STATE_FILE = "state.json"
-
-
-def _load_state() -> dict:
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, encoding="utf-8") as f:
-                data = f.read().strip()
-            return json.loads(data) if data else {}
-        except json.JSONDecodeError:
-            backup = f"{STATE_FILE}.bak"
-            if os.path.exists(backup):
-                try:
-                    with open(backup, encoding="utf-8") as f:
-                        data = f.read().strip()
-                    return json.loads(data) if data else {}
-                except Exception:
-                    pass
-            return {}
-    return {}
-
-
-def _save_state(state: dict) -> None:
-    backup = f"{STATE_FILE}.bak"
-    tmp = f"{STATE_FILE}.tmp"
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, encoding="utf-8") as f:
-                json.load(f)
-            shutil.copy2(STATE_FILE, backup)
-        except Exception:
-            pass
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, STATE_FILE)
+from moduli.state_io import load_state as _load_state, save_state as _save_state
 
 
 def _publish_hours(state: dict) -> list[int]:
@@ -911,6 +1070,45 @@ async def cmd_dimentica(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Usa un numero. Es: /dimentica 2")
 
 
+async def cmd_conferma(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    action_id = ctx.args[0].strip() if ctx.args else ""
+    if not action_id:
+        await update.message.reply_text("Uso: /conferma <id>")
+        return
+    state = _load_state()
+    pending = _pending_actions(state)
+    action = next((a for a in pending if a.get("id") == action_id), None)
+    if not action:
+        _save_state(state)
+        await update.message.reply_text("Conferma non trovata o scaduta.")
+        return
+    try:
+        result = _execute_confirmed_action(state, action)
+        state["pending_actions"] = [a for a in pending if a.get("id") != action_id]
+        _save_state(state)
+        await update.message.reply_text(f"✅ {result}", parse_mode="HTML")
+    except Exception as e:
+        _save_state(state)
+        await update.message.reply_text(f"❌ Errore esecuzione confermata: {_h(e)}", parse_mode="HTML")
+
+
+async def cmd_annulla(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    action_id = ctx.args[0].strip() if ctx.args else ""
+    if not action_id:
+        await update.message.reply_text("Uso: /annulla <id>")
+        return
+    state = _load_state()
+    pending = _pending_actions(state)
+    remaining = [a for a in pending if a.get("id") != action_id]
+    if len(remaining) == len(pending):
+        _save_state(state)
+        await update.message.reply_text("Azione non trovata o gia scaduta.")
+        return
+    state["pending_actions"] = remaining
+    _save_state(state)
+    await update.message.reply_text("Azione annullata.")
+
+
 def _run_canale(fn, *args, **kwargs):
     from moduli.canale import (
         info_canale, aggiorna_canale, lista_video, lista_playlist,
@@ -1172,34 +1370,36 @@ def start_bot() -> None:
 
     async def _run():
         app = Application.builder().token(token).build()
-        app.add_handler(CommandHandler("start", cmd_start))
-        app.add_handler(CommandHandler("status", cmd_status))
-        app.add_handler(CommandHandler("recap", cmd_recap))
-        app.add_handler(CommandHandler("preferenze", cmd_preferenze))
-        app.add_handler(CommandHandler("setpref", cmd_setpref))
-        app.add_handler(CommandHandler("forza", cmd_forza))
-        app.add_handler(CommandHandler("forzaora", cmd_forzaora))
-        app.add_handler(CommandHandler("skip", cmd_skip))
-        app.add_handler(CommandHandler("abort", cmd_abort))
-        app.add_handler(CommandHandler("coda", cmd_coda))
-        app.add_handler(CommandHandler("topic", cmd_topic))
-        app.add_handler(CommandHandler("deltopic", cmd_deltopic))
-        app.add_handler(CommandHandler("setvideogiorno", cmd_setvideogiorno))
-        app.add_handler(CommandHandler("autoscheduling", cmd_autoscheduling))
-        app.add_handler(CommandHandler("orari", cmd_orari))
-        app.add_handler(CommandHandler("prossimi", cmd_prossimi))
-        app.add_handler(CommandHandler("setpubblica", cmd_setpubblica))
-        app.add_handler(CommandHandler("canale", cmd_canale))
-        app.add_handler(CommandHandler("setdesc", cmd_setdesc))
-        app.add_handler(CommandHandler("video", cmd_video))
-        app.add_handler(CommandHandler("playlist", cmd_playlist))
-        app.add_handler(CommandHandler("nuovaplaylist", cmd_nuovaplaylist))
-        app.add_handler(CommandHandler("commenti", cmd_commenti))
-        app.add_handler(CommandHandler("reset", cmd_reset))
-        app.add_handler(CommandHandler("memoria", cmd_memoria))
-        app.add_handler(CommandHandler("dimentica", cmd_dimentica))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.VOICE | filters.PHOTO | filters.Document.VIDEO | filters.Document.AUDIO, handle_media))
+        app.add_handler(CommandHandler("start", _authorized(cmd_start)))
+        app.add_handler(CommandHandler("status", _authorized(cmd_status)))
+        app.add_handler(CommandHandler("recap", _authorized(cmd_recap)))
+        app.add_handler(CommandHandler("preferenze", _authorized(cmd_preferenze)))
+        app.add_handler(CommandHandler("setpref", _authorized(cmd_setpref)))
+        app.add_handler(CommandHandler("forza", _authorized(cmd_forza)))
+        app.add_handler(CommandHandler("forzaora", _authorized(cmd_forzaora)))
+        app.add_handler(CommandHandler("skip", _authorized(cmd_skip)))
+        app.add_handler(CommandHandler("abort", _authorized(cmd_abort)))
+        app.add_handler(CommandHandler("conferma", _authorized(cmd_conferma)))
+        app.add_handler(CommandHandler("annulla", _authorized(cmd_annulla)))
+        app.add_handler(CommandHandler("coda", _authorized(cmd_coda)))
+        app.add_handler(CommandHandler("topic", _authorized(cmd_topic)))
+        app.add_handler(CommandHandler("deltopic", _authorized(cmd_deltopic)))
+        app.add_handler(CommandHandler("setvideogiorno", _authorized(cmd_setvideogiorno)))
+        app.add_handler(CommandHandler("autoscheduling", _authorized(cmd_autoscheduling)))
+        app.add_handler(CommandHandler("orari", _authorized(cmd_orari)))
+        app.add_handler(CommandHandler("prossimi", _authorized(cmd_prossimi)))
+        app.add_handler(CommandHandler("setpubblica", _authorized(cmd_setpubblica)))
+        app.add_handler(CommandHandler("canale", _authorized(cmd_canale)))
+        app.add_handler(CommandHandler("setdesc", _authorized(cmd_setdesc)))
+        app.add_handler(CommandHandler("video", _authorized(cmd_video)))
+        app.add_handler(CommandHandler("playlist", _authorized(cmd_playlist)))
+        app.add_handler(CommandHandler("nuovaplaylist", _authorized(cmd_nuovaplaylist)))
+        app.add_handler(CommandHandler("commenti", _authorized(cmd_commenti)))
+        app.add_handler(CommandHandler("reset", _authorized(cmd_reset)))
+        app.add_handler(CommandHandler("memoria", _authorized(cmd_memoria)))
+        app.add_handler(CommandHandler("dimentica", _authorized(cmd_dimentica)))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _authorized(handle_message)))
+        app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.VOICE | filters.PHOTO | filters.Document.VIDEO | filters.Document.AUDIO, _authorized(handle_media)))
 
         await app.initialize()
         await app.bot.set_my_commands([
@@ -1210,6 +1410,8 @@ def start_bot() -> None:
             ("forzaora",       "Pubblica subito senza programmazione"),
             ("skip",           "Salta il video di oggi"),
             ("abort",          "Ferma la pipeline in corso"),
+            ("conferma",       "Conferma un'azione sensibile"),
+            ("annulla",        "Annulla un'azione sensibile"),
             ("orari",          "Programma attuale"),
             ("prossimi",       "Prossimo run e publish"),
             ("setvideogiorno", "Imposta quanti video al giorno"),

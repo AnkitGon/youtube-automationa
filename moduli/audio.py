@@ -28,7 +28,7 @@ def _ffmpeg() -> str:
         "ffmpeg not found. Install it and add to PATH, or set FFMPEG_PATH=/path/to/ffmpeg"
     )
 
-VOICE = "en-US-GuyNeural"
+VOICE_DEFAULT = "en-US-GuyNeural"
 TTS_TIMEOUT = 45
 CHUNK_WORDS = 300
 
@@ -59,12 +59,12 @@ def _tts_worker(text: str, output_path: str, voice: str) -> None:
     asyncio.run(_run())
 
 
-def _edge_tts_chunk(text: str, output_path: str) -> bool:
+def _edge_tts_chunk(text: str, output_path: str, voice: str) -> bool:
     proc = subprocess.Popen(
         [sys.executable, "-c",
          f"import sys; sys.path.insert(0,'.');"
          f"from moduli.audio import _tts_worker;"
-         f"_tts_worker({repr(text)}, {repr(output_path)}, {repr(VOICE)})"],
+         f"_tts_worker({repr(text)}, {repr(output_path)}, {repr(voice)})"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -108,23 +108,25 @@ def _concat_audio(parts: list[str], output_path: str) -> None:
                 out.write(f.read())
 
 
-def _edge_tts(text: str, output_path: str) -> bool:
+def _edge_tts(text: str, output_path: str, voice: str) -> bool:
     chunks = _split_chunks(text)
-    print(f"[TTS] Edge TTS — {len(chunks)} chunk da ~{CHUNK_WORDS} parole", flush=True)
+    print(f"[TTS] Edge TTS — voce: {voice} — {len(chunks)} chunk da ~{CHUNK_WORDS} parole", flush=True)
     tmp_parts = []
     try:
         for i, chunk in enumerate(chunks):
-            tmp = tempfile.mktemp(suffix=f"_chunk{i}.mp3")
+            tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_chunk{i}.mp3")
+            tmp = tmp_file.name
+            tmp_file.close()
+            tmp_parts.append(tmp)
             ok = False
             for attempt in range(2):
                 print(f"[TTS]   chunk {i+1}/{len(chunks)} tentativo {attempt+1}/2...", flush=True)
-                if _edge_tts_chunk(chunk, tmp):
+                if _edge_tts_chunk(chunk, tmp, voice):
                     ok = True
                     break
             if not ok:
                 print(f"[TTS]   chunk {i+1} fallito definitivamente", flush=True)
                 return False
-            tmp_parts.append(tmp)
         _concat_audio(tmp_parts, output_path)
         return True
     finally:
@@ -133,11 +135,11 @@ def _edge_tts(text: str, output_path: str) -> bool:
                 os.remove(p)
 
 
-def _gtts(text: str, output_path: str) -> bool:
+def _gtts(text: str, output_path: str, lang: str = "en") -> bool:
     try:
         from gtts import gTTS
-        print("[TTS] Uso gTTS (Google) come fallback...", flush=True)
-        tts = gTTS(text=text, lang="en", slow=False)
+        print(f"[TTS] Uso gTTS (Google) come fallback — lingua: {lang}...", flush=True)
+        tts = gTTS(text=text, lang=lang, slow=False)
         tts.save(output_path)
         return True
     except Exception as e:
@@ -145,15 +147,30 @@ def _gtts(text: str, output_path: str) -> bool:
         return False
 
 
+def _load_voice() -> str:
+    try:
+        from moduli.preferenze import carica
+        return carica().get("tts_voce", VOICE_DEFAULT)
+    except Exception:
+        return VOICE_DEFAULT
+
+
+def _gtts_lang(voice: str) -> str:
+    """Estrae codice lingua da voice name Edge TTS (es. it-IT-DiegoNeural → it)."""
+    parts = voice.split("-")
+    return parts[0] if parts else "en"
+
+
 def genera_audio(text: str, output_path: str, retries: int = 2) -> None:
+    voice = _load_voice()
     words = len(text.split())
-    print(f"[TTS] Edge TTS avvio ({words} parole)...", flush=True)
-    if _edge_tts(text, output_path):
+    print(f"[TTS] Edge TTS avvio — voce: {voice} ({words} parole)...", flush=True)
+    if _edge_tts(text, output_path, voice):
         print(f"[TTS] Audio salvato: {output_path}", flush=True)
         return
 
     print("[TTS] Edge TTS fallito — provo gTTS...", flush=True)
-    if _gtts(text, output_path):
+    if _gtts(text, output_path, lang=_gtts_lang(voice)):
         print(f"[TTS] Audio salvato (gTTS): {output_path}", flush=True)
         return
 

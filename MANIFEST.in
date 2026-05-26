@@ -1,0 +1,3 @@
+include .env.example
+recursive-include assets *
+recursive-include youtube_ai_agent *

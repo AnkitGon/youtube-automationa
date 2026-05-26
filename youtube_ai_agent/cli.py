@@ -6,6 +6,8 @@ Usage:
     tube-assistant onboard      # first-time setup wizard
     tube-assistant start        # run the daemon
     tube-assistant run          # one-shot pipeline
+    tube-assistant dry-run      # generate locally without upload
+    tube-assistant preflight    # check local runtime configuration
     tube-assistant status       # workspace summary
     tube-assistant workspace    # print workspace path
 """
@@ -60,7 +62,9 @@ def _read_key() -> str:
 _MENU_ITEMS = [
     ("Start daemon",   "start"),
     ("One-shot video", "run"),
+    ("Dry run",        "dry-run"),
     ("Setup wizard",   "onboard"),
+    ("Preflight",      "preflight"),
     ("Update",         "update"),
     ("Status",         "status"),
     ("Quit",           None),
@@ -216,6 +220,15 @@ def cmd_run() -> None:
     sys.exit(_launch(workspace, "main"))
 
 
+def cmd_dry_run() -> None:
+    workspace = get_workspace()
+    if not _check_setup(workspace):
+        sys.exit(1)
+    scaffold(workspace)
+    print(f"\n  Running dry-run pipeline in: {workspace}\n")
+    sys.exit(_launch(workspace, "dry-run"))
+
+
 def cmd_update() -> None:
     import subprocess
     print("\n  Aggiornamento in corso...\n")
@@ -237,6 +250,19 @@ def cmd_status() -> None:
     _print_status(workspace)
 
 
+def cmd_preflight() -> None:
+    workspace = get_workspace()
+    scaffold(workspace)
+    from dotenv import load_dotenv
+    from moduli.preflight import format_checks, run_checks
+    load_dotenv(workspace / ".env")
+    checks = run_checks(workspace)
+    print()
+    print(format_checks(checks))
+    print()
+    sys.exit(0 if all(c["ok"] for c in checks) else 1)
+
+
 def cmd_workspace() -> None:
     print(get_workspace())
 
@@ -247,6 +273,8 @@ _COMMANDS = {
     "onboard":   cmd_onboard,
     "start":     cmd_start,
     "run":       cmd_run,
+    "dry-run":   cmd_dry_run,
+    "preflight": cmd_preflight,
     "update":    cmd_update,
     "status":    cmd_status,
     "workspace": cmd_workspace,
@@ -260,6 +288,8 @@ Usage:
   tube-assistant onboard      first-time setup
   tube-assistant start        run the daemon
   tube-assistant run          one-shot pipeline
+  tube-assistant dry-run      generate locally without upload
+  tube-assistant preflight    check local runtime configuration
   tube-assistant status       workspace summary
   tube-assistant workspace    print workspace path
 

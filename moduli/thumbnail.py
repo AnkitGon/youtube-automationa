@@ -115,7 +115,32 @@ def _font_size_for_title(title: str) -> int:
     return 58
 
 
-def _draw_title(img: Image.Image, title: str) -> Image.Image:
+def _parse_color(color_str: str) -> tuple:
+    _NOMI = {
+        "bianco": (255, 255, 255), "nero": (0, 0, 0),
+        "rosso": (255, 50, 50), "giallo": (255, 220, 0),
+        "verde": (50, 255, 100), "blu": (50, 150, 255),
+        "arancione": (255, 140, 0), "viola": (180, 50, 255),
+        "cyan": (0, 220, 255), "rosa": (255, 100, 180),
+        "white": (255, 255, 255), "red": (255, 50, 50),
+        "yellow": (255, 220, 0), "blue": (50, 150, 255),
+        "green": (50, 255, 100), "orange": (255, 140, 0),
+    }
+    s = color_str.strip().lower()
+    if s in _NOMI:
+        return _NOMI[s]
+    parts = [p.strip() for p in s.split(",")]
+    if len(parts) == 3:
+        try:
+            return tuple(int(p) for p in parts)
+        except ValueError:
+            pass
+    return (255, 255, 255)
+
+
+def _draw_title(img: Image.Image, title: str,
+                text_color: tuple = (255, 255, 255),
+                position: str = "basso") -> Image.Image:
     if img.size != (THUMB_W, THUMB_H):
         img = img.resize((THUMB_W, THUMB_H), Image.LANCZOS)
     img = img.convert("RGBA")
@@ -130,15 +155,25 @@ def _draw_title(img: Image.Image, title: str) -> Image.Image:
     padding = 40
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    strip_top = THUMB_H - block_h - padding * 2 - 30
-    for y in range(strip_top, THUMB_H):
-        alpha = int(210 * ((y - strip_top) / (THUMB_H - strip_top)))
-        for x in range(THUMB_W):
-            overlay.putpixel((x, y), (0, 0, 0, alpha))
+    if position == "alto":
+        strip_end = block_h + padding * 2 + 30
+        for y in range(0, strip_end):
+            alpha = int(210 * ((strip_end - y) / strip_end))
+            for x in range(THUMB_W):
+                overlay.putpixel((x, y), (0, 0, 0, alpha))
+        text_y_start = padding
+    else:
+        strip_top = THUMB_H - block_h - padding * 2 - 30
+        for y in range(strip_top, THUMB_H):
+            alpha = int(210 * ((y - strip_top) / (THUMB_H - strip_top)))
+            for x in range(THUMB_W):
+                overlay.putpixel((x, y), (0, 0, 0, alpha))
+        text_y_start = THUMB_H - block_h - padding
     img = Image.alpha_composite(img, overlay)
 
     draw = ImageDraw.Draw(img)
-    y = THUMB_H - block_h - padding
+    fill_rgba = (*text_color, 255)
+    y = text_y_start
 
     for line in lines:
         bbox = font.getbbox(line)
@@ -150,7 +185,7 @@ def _draw_title(img: Image.Image, title: str) -> Image.Image:
                     draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
         draw.text((x + SHADOW_OFFSET, y + SHADOW_OFFSET), line,
                   font=font, fill=(0, 0, 0, 200))
-        draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
+        draw.text((x, y), line, font=font, fill=fill_rgba)
         y += line_h
 
     return img.convert("RGB")
@@ -175,7 +210,16 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
 
     else:
         img = _fetch_image_pollinations(title, mood=mood, style=style)
-        img = _draw_title(img, title)
+
+    try:
+        from moduli.preferenze import carica as _carica_pref
+        _pref = _carica_pref()
+    except Exception:
+        _pref = {}
+    if _pref.get("thumbnail_testo_mostra", True):
+        _color = _parse_color(_pref.get("thumbnail_testo_colore", "255,255,255"))
+        _pos = _pref.get("thumbnail_testo_posizione", "basso")
+        img = _draw_title(img, title, text_color=_color, position=_pos)
 
     if img.size != (THUMB_W, THUMB_H):
         img = img.resize((THUMB_W, THUMB_H), Image.LANCZOS)
