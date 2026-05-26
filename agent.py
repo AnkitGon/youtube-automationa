@@ -79,11 +79,44 @@ from moduli.state_io import load_state as _load_state, save_state as _save_state
 AUDIO_PATH = "output/narration.mp3"
 VIDEO_PATH = "output/output_finale.mp4"
 THUMB_PATH = "output/thumbnail.jpg"
+PID_FILE   = ".agent.pid"
 
 DEFAULT_VIDEOS_PER_DAY = 1
 DEFAULT_TRIGGER_HOURS = [14]
 
 _pipeline_step = "init"
+
+
+def _acquire_pid_lock() -> None:
+    """Blocca il doppio avvio: esce se un'altra istanza è già in esecuzione."""
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE) as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, 0)  # signal 0 = verifica esistenza senza inviare nulla
+            print(f"\n[ERRORE] Agent già in esecuzione (PID {old_pid}).")
+            print("Ferma l'istanza esistente prima di avviarne un'altra:")
+            print(f"  kill {old_pid}")
+            print(f"  oppure: pkill -f tube-assistant\n")
+            sys.exit(1)
+        except (ValueError, ProcessLookupError, PermissionError):
+            # PID non esiste più oppure file corrotto → rimuovi il file stale
+            os.remove(PID_FILE)
+        except OSError:
+            os.remove(PID_FILE)
+
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    import atexit
+    atexit.register(_release_pid_lock)
+
+
+def _release_pid_lock() -> None:
+    try:
+        os.remove(PID_FILE)
+    except OSError:
+        pass
 
 
 class PipelineAbort(RuntimeError):
@@ -357,6 +390,7 @@ def _cleanup_stale_state() -> None:
 
 
 def main():
+    _acquire_pid_lock()
     _log("━━━ YouTube AI Agent avviato ━━━")
     _cleanup_stale_state()
 

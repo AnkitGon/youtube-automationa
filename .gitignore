@@ -1,4 +1,5 @@
 # secrets & runtime state
+.agent.pid
 .env
 credentials.json
 client_secret_*.json
