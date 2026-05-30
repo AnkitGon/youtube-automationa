@@ -1455,15 +1455,56 @@ def start_bot() -> None:
             print(f"[Telegram] Errore: {context.error}", flush=True)
 
         app.add_error_handler(_on_error)
-        await app.start()
-        await app.updater.start_polling(drop_pending_updates=True, read_timeout=30, write_timeout=30)
+
+        # Il bootstrap di start_polling (primo getUpdates/deleteWebhook) NON passa
+        # dall'error_handler: un Conflict o errore di rete qui ucciderebbe il thread.
+        # Retry con backoff, coerente con la gestione Conflict del loop.
+        from telegram.error import Conflict, NetworkError, TimedOut
+        for tentativo in range(1, 7):
+            try:
+                await app.start()
+                await app.updater.start_polling(
+                    drop_pending_updates=True,
+                    read_timeout=30,
+                    write_timeout=30,
+                    bootstrap_retries=-1,
+                )
+                break
+            except (Conflict, NetworkError, TimedOut) as e:
+                wait = min(60, 5 * tentativo)
+                tipo = type(e).__name__
+                print(
+                    f"[Telegram] Bootstrap {tipo} (tentativo {tentativo}/6). "
+                    f"Ritento tra {wait}s. Se persiste, ferma le altre istanze.",
+                    flush=True,
+                )
+                try:
+                    await app.updater.stop()
+                except Exception:
+                    pass
+                try:
+                    await app.stop()
+                except Exception:
+                    pass
+                await asyncio.sleep(wait)
+        else:
+            print(
+                "\n[Telegram] FATALE: impossibile avviare il polling dopo 6 tentativi.\n"
+                "Ferma l'altra istanza (PC/server) e riavvia:\n"
+                "  pkill -f tube-assistant   (su ogni macchina)\n",
+                flush=True,
+            )
+            os._exit(1)
         print("[Telegram] Bot polling started")
 
         while True:
             await asyncio.sleep(3600)
 
     def _thread():
-        asyncio.run(_run())
+        try:
+            asyncio.run(_run())
+        except Exception as e:
+            print(f"[Telegram] Thread terminato con errore: {type(e).__name__}: {e}", flush=True)
 
     t = threading.Thread(target=_thread, daemon=True)
     t.start()
