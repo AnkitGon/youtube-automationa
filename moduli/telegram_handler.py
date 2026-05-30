@@ -43,9 +43,16 @@ def _is_authorized(update: Update) -> bool:
 
 async def _deny_unauthorized(update: Update) -> None:
     chat = update.effective_chat
-    print(f"[Telegram] Unauthorized chat blocked: {getattr(chat, 'id', None)}", flush=True)
+    chat_id = getattr(chat, "id", None)
+    print(f"[Telegram] Unauthorized chat blocked: {chat_id}", flush=True)
     if update.message:
-        await update.message.reply_text("Accesso non autorizzato.")
+        await update.message.reply_text(
+            "Accesso non autorizzato.\n\n"
+            f"Il tuo chat ID è: {chat_id}\n"
+            "Per autorizzarti, imposta nel file .env:\n"
+            f"TELEGRAM_CHAT_ID={chat_id}\n"
+            "poi riavvia l'agente."
+        )
 
 
 def _authorized(handler):
