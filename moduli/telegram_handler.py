@@ -1376,7 +1376,13 @@ def start_bot() -> None:
         return
 
     async def _run():
-        app = Application.builder().token(token).build()
+        app = (
+            Application.builder()
+            .token(token)
+            .read_timeout(30)
+            .write_timeout(30)
+            .build()
+        )
         app.add_handler(CommandHandler("start", _authorized(cmd_start)))
         app.add_handler(CommandHandler("status", _authorized(cmd_status)))
         app.add_handler(CommandHandler("recap", _authorized(cmd_recap)))
@@ -1472,8 +1478,6 @@ def start_bot() -> None:
                 await app.start()
                 await app.updater.start_polling(
                     drop_pending_updates=True,
-                    read_timeout=30,
-                    write_timeout=30,
                     bootstrap_retries=-1,
                 )
                 break
