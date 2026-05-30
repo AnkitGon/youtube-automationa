@@ -1,18 +1,22 @@
 
 import json
 import re
+from datetime import datetime
 from moduli.ai_client import chat_ollama
 
 TOPIC_PROMPT = """You are a viral YouTube content strategist for a tech/AI channel.
 
+Today's date: {current_date}
 Current strategy guidance: {strategy_notes}
 Topic focus: {topic_focus}
 
 Generate ONE trending topic for a YouTube video about AI or technology.
+Base your suggestion on what is relevant and trending as of {current_date}.
 Avoid repeating these recent topics: {recent_topics}
 Reply with ONLY the topic as a short phrase (3-7 words). No explanation, no punctuation."""
 
 CONTENT_PROMPT = """You are a viral YouTube scriptwriter for a tech/AI channel.
+Today's date: {current_date}
 Create a complete video about: {topic}
 
 Strategy guidance:
@@ -66,6 +70,7 @@ def _parse_json(text: str) -> dict:
 def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
     strategy = strategy or {}
     prompt = TOPIC_PROMPT.format(
+        current_date=datetime.now().strftime("%Y-%m-%d %H:%M UTC"),
         strategy_notes=strategy.get("notes", "Standard approach"),
         topic_focus=strategy.get("topic_focus", "AI and technology trends"),
         recent_topics=", ".join(recent_topics or []) or "none",
@@ -82,6 +87,7 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
         target_minutes = 8
     target_words = int(target_minutes * 130)  # ~130 parole/min a velocità TTS normale
     prompt = CONTENT_PROMPT.format(
+        current_date=datetime.now().strftime("%Y-%m-%d %H:%M UTC"),
         topic=topic,
         title_style=strategy.get("title_style", "curiosity-driven"),
         tone=strategy.get("tone", "confident and informative"),
