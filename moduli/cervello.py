@@ -70,7 +70,7 @@ def _parse_json(text: str) -> dict:
 def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
     strategy = strategy or {}
     prompt = TOPIC_PROMPT.format(
-        current_date=datetime.now().strftime("%Y-%m-%d %H:%M UTC"),
+        current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         strategy_notes=strategy.get("notes", "Standard approach"),
         topic_focus=strategy.get("topic_focus", "AI and technology trends"),
         recent_topics=", ".join(recent_topics or []) or "none",
@@ -87,7 +87,7 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
         target_minutes = 8
     target_words = int(target_minutes * 130)  # ~130 parole/min a velocità TTS normale
     prompt = CONTENT_PROMPT.format(
-        current_date=datetime.now().strftime("%Y-%m-%d %H:%M UTC"),
+        current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         topic=topic,
         title_style=strategy.get("title_style", "curiosity-driven"),
         tone=strategy.get("tone", "confident and informative"),

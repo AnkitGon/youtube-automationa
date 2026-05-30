@@ -289,8 +289,14 @@ def _ask_ai(user_text: str, history: list, state: dict) -> tuple[str, list]:
         if notizie:
             system_parts.append(f"[RICERCA WEB IN TEMPO REALE — query: '{query}']\n{notizie}")
 
+    _ora_locale = datetime.now().astimezone()
+    _giorni = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+    _data_str = f"{_giorni[_ora_locale.weekday()]} {_ora_locale.strftime('%d/%m/%Y')}"
+    _tz_str = _ora_locale.strftime("%Z") or "ora locale"
     system_parts.append(
-        f"[CONTESTO ATTUALE — ora UTC: {datetime.now(timezone.utc).strftime('%H:%M')}]\n"
+        f"[CONTESTO ATTUALE — {_data_str}, ore {_ora_locale.strftime('%H:%M')} ({_tz_str}; "
+        f"{datetime.now(timezone.utc).strftime('%H:%M')} UTC)]\n"
+        f"IMPORTANTE: per data e ora usa SEMPRE ed ESATTAMENTE i valori qui sopra. Non calcolarli, non inventarli.\n"
         f"Video al giorno: {vpd} | Pipeline automatica: {trigger_hours} UTC | Pubblica: {publish_hours} UTC\n"
         f"Topic in coda ({len(queue)}):\n{chr(10).join(f'  {i+1}. {t}' for i, t in enumerate(queue)) if queue else '  nessuno'}\n"
         f"IMPORTANTE: quando l'utente dice 'fai topic N' o 'crea il topic N', usa ESATTAMENTE il testo del topic numero N dalla lista sopra nel tag [FORZA_ORA: testo esatto].\n"
