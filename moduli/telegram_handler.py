@@ -940,7 +940,7 @@ async def cmd_orari(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     trigger = [(h - 3) % 24 for h in publish]
     auto = state.get("auto_scheduling", False)
     done = state.get("runs_today", {}).get(
-        __import__("datetime").datetime.utcnow().strftime("%Y-%m-%d"), 0
+        datetime.now(timezone.utc).strftime("%Y-%m-%d"), 0
     )
 
     trigger_str = "\n".join(f"  {i+1}. Pipeline alle {h:02d}:00 UTC → pubblica alle {publish[i] if i < len(publish) else '?'}:00 UTC"

@@ -248,7 +248,8 @@ def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = N
                 link = _best_file(v["video_files"])
                 _download(link, dest)
                 paths.append(dest)
-            except Exception:
+            except Exception as e:
+                print(f"[asset] clip {vid} saltata: {e}", flush=True)
                 continue
         index[f"pex_{vid}"] = {
             "file": os.path.basename(dest),

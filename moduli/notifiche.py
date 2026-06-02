@@ -80,7 +80,7 @@ def notify_analytics(stats: list) -> None:
         return
     lines = ["📊 <b>Recap ultimi video</b>\n"]
     for v in stats:
-        retention = int(v.get("avg_view_duration_seconds", 0) / 480 * 100)
+        retention = int(v.get("avg_view_duration_seconds", 0) / max(v.get("duration_seconds", 480), 1) * 100)
         lines.append(
             f"▪️ <i>{v['title'][:40]}</i>\n"
             f"   👁 {v['views']} views | ❤️ {v['likes']} likes | 🔁 {retention}% retention\n"

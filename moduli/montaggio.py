@@ -501,6 +501,8 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
         seg = _make_segment(clip_path, seg_start, seg_dur)
         segments.append(seg)
 
+    if not segments:
+        raise RuntimeError("montaggio: nessun segmento video creato — audio troppo corto?")
     video = concatenate_videoclips(segments, method="compose")
 
     audio_tracks = [narration]
