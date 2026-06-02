@@ -20,6 +20,7 @@ DEFAULT_PREF = {
     "thumbnail_testo_mostra": True,          # mostra titolo sulla copertina
     "thumbnail_testo_colore": "255,255,255", # R,G,B oppure nome (bianco/rosso/giallo...)
     "thumbnail_testo_posizione": "basso",    # alto / basso
+    "thumbnail_testo_scala": 1.0,            # grandezza testo: 0.3-1.0 (1.0 = massimo leggibile)
     "tts_voce": "en-US-GuyNeural",          # voce Edge TTS (es. it-IT-DiegoNeural)
 }
 
@@ -160,7 +161,12 @@ def aggiorna_da_testo(testo: str) -> dict:
     thumb_match = re.search(r"\b(?:stile\s+thumbnail|thumbnail|copertina)\b\s*(?:=|:|con|in|stile)?\s*(.+)", original, re.IGNORECASE)
     if thumb_match:
         value = thumb_match.group(1).strip(" .")
-        if value:
+        # non confondere comandi sul TESTO (colore/grandezza/posizione) con lo stile immagine
+        _is_text_cmd = re.search(
+            r"\b(?:testo|titolo|scritte?|font|carattere|colore?|color|piu'|più|piu\s|grand|piccol|alto|basso|grandezza|scala|%)\b",
+            value, re.IGNORECASE,
+        )
+        if value and not _is_text_cmd:
             set_pref("stile_thumbnail", value)
 
     note_match = re.search(r"\b(?:nota|ricorda\s+per\s+i\s+video|preferenza\s+generale)\b\s*[:\-]?\s*(.+)", original, re.IGNORECASE)
@@ -205,6 +211,19 @@ def aggiorna_da_testo(testo: str) -> dict:
         set_pref("thumbnail_testo_mostra", False)
     elif re.search(r"\b(?:aggiungi\s+testo|metti\s+testo|con\s+testo|mostra\s+testo|mostra\s+titolo|testo\s+sulla\s+copertina|titolo\s+sulla\s+copertina)\b", t):
         set_pref("thumbnail_testo_mostra", True)
+
+    # grandezza testo copertina
+    if re.search(r"\b(?:testo|titolo|scritte?|font|carattere)\b.{0,30}\b(?:piu'|più|piu)\s+grand", t) or \
+       re.search(r"\b(?:ingrandisci|aumenta)\b.{0,20}\b(?:testo|titolo|scritte?|font)\b", t) or \
+       re.search(r"\b(?:testo|titolo|scritte?)\b.{0,15}\b(?:enorme|gigante|grandissim)", t):
+        set_pref("thumbnail_testo_scala", 1.0)
+    elif re.search(r"\b(?:testo|titolo|scritte?|font|carattere)\b.{0,30}\b(?:piu'|più|piu)\s+piccol", t) or \
+         re.search(r"\b(?:rimpicciolisci|riduci|diminuisci)\b.{0,20}\b(?:testo|titolo|scritte?|font)\b", t):
+        set_pref("thumbnail_testo_scala", 0.6)
+    else:
+        scala_match = re.search(r"\b(?:testo|titolo|scritte?|font|carattere|grandezza|scala)\b.{0,20}?(\d{1,3})\s*%", t)
+        if scala_match:
+            set_pref("thumbnail_testo_scala", max(0.3, min(1.0, int(scala_match.group(1)) / 100)))
 
     _VOCI_PRESET = {
         # italiano
@@ -267,6 +286,7 @@ def come_contesto() -> str:
         f"- Testo sulla copertina: {'sì' if pref.get('thumbnail_testo_mostra', True) else 'no'}\n"
         f"- Colore testo copertina: {pref.get('thumbnail_testo_colore', '255,255,255')}\n"
         f"- Posizione testo copertina: {pref.get('thumbnail_testo_posizione', 'basso')}\n"
+        f"- Grandezza testo copertina: {pref.get('thumbnail_testo_scala', 1.0)} (0.3-1.0)\n"
         f"- Voce TTS: {pref.get('tts_voce', 'en-US-GuyNeural')}\n"
         f"- Argomenti preferiti: {', '.join(pref['argomenti_preferiti'])}\n"
         f"- Argomenti da evitare: {', '.join(pref['argomenti_evitare']) or 'nessuno'}\n"

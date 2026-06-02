@@ -63,6 +63,7 @@ def run(dry_run: bool = False):
     genera_thumbnail(
         content["title"], THUMB_PATH,
         thumbnail_description=content.get("thumbnail_description"),
+        thumbnail_phrase=content.get("thumbnail_phrase"),
     )
     print(f"  Saved: {THUMB_PATH}")
 

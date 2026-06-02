@@ -127,7 +127,7 @@ REAL ACTIONS (tags executed automatically — ALWAYS use them when requested):
 [AGGIORNA_DESC: description text] → updates the channel description via API
 [AGGIORNA_KEYWORDS: keyword1, keyword2] → updates channel keywords via API
 [RICORDA: fact] → saves to long-term memory (preferences, channel info, instructions)
-[SETPREF: key=value] → updates video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false — show/hide title text on thumbnail), thumbnail_testo_colore (color name like bianco/rosso/giallo/blu/verde/arancione/viola/cyan/rosa or R,G,B like 255,220,0), thumbnail_testo_posizione (alto/basso — text position on thumbnail), tts_voce (Edge TTS voice name — use exact format like en-US-GuyNeural, it-IT-DiegoNeural, it-IT-ElsaNeural, en-US-AriaNeural, en-GB-SoniaNeural). ALWAYS use this tag when the user expresses a preference about video type, thumbnail appearance, or voice.
+[SETPREF: key=value] → updates video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false — show/hide title text on thumbnail), thumbnail_testo_colore (color name like bianco/rosso/giallo/blu/verde/arancione/viola/cyan/rosa or R,G,B like 255,220,0), thumbnail_testo_posizione (alto/basso — text position on thumbnail), thumbnail_testo_scala (0.3-1.0 — text size on thumbnail; 1.0 = biggest/most readable, lower = smaller), tts_voce (Edge TTS voice name — use exact format like en-US-GuyNeural, it-IT-DiegoNeural, it-IT-ElsaNeural, en-US-AriaNeural, en-GB-SoniaNeural). ALWAYS use this tag when the user expresses a preference about video type, thumbnail appearance, or voice.
 Examples of voice commands → correct tags:
 - "voce italiana" → [SETPREF: tts_voce=it-IT-DiegoNeural]
 - "voce femminile" → [SETPREF: tts_voce=en-US-AriaNeural]
@@ -151,6 +151,9 @@ Examples of thumbnail text commands → correct tags:
 - "metti il testo giallo" → [SETPREF: thumbnail_testo_colore=giallo]
 - "testo in alto" → [SETPREF: thumbnail_testo_posizione=alto]
 - "no testo sulla copertina" → [SETPREF: thumbnail_testo_mostra=false]
+- "testo più grande" / "ingrandisci il testo" → [SETPREF: thumbnail_testo_scala=1.0]
+- "testo più piccolo" / "rimpicciolisci il testo" → [SETPREF: thumbnail_testo_scala=0.6]
+- "testo al 70%" → [SETPREF: thumbnail_testo_scala=0.7]
 - "aggiungi il titolo rosso in alto" → [SETPREF: thumbnail_testo_colore=rosso] + [SETPREF: thumbnail_testo_posizione=alto] + [SETPREF: thumbnail_testo_mostra=true]
 
 CRITICAL RULE ON TAGS: only use the tags listed above. Do NOT invent tags — they won't be executed. If no suitable tag exists, perform the action with words.

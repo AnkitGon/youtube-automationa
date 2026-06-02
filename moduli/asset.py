@@ -29,6 +29,20 @@ def _cache_path(keyword: str) -> str:
     return os.path.join(CACHE_DIR, f"{slug}.mp4")
 
 
+def _cache_path_id(pexels_id) -> str:
+    """Percorso cache per uno specifico video Pexels (clip distinte per id)."""
+    return os.path.join(CACHE_DIR, f"pex_{pexels_id}.mp4")
+
+
+def _existing_variant(path: str) -> str | None:
+    for p in (path.replace('.mp4', '_720p.mp4'),
+              path.replace('.mp4', '_1080p.mp4'),
+              path):
+        if os.path.exists(p):
+            return p
+    return None
+
+
 def _cache_path_1080p(keyword: str) -> str:
     return _cache_path(keyword).replace('.mp4', '_1080p.mp4')
 
@@ -187,6 +201,67 @@ def scarica_clip(keyword: str, extra_tags: list[str] | None = None) -> str:
     _save_index(index)
 
     return path
+
+
+def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = None) -> list[str]:
+    """Scarica fino a max_n clip DISTINTE per il keyword (per arricchire il pool
+    ed evitare ripetizioni nel montaggio). Ogni clip e' un file fisico diverso,
+    indicizzato per id Pexels. Ritorna la lista dei path scaricati/cached."""
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    api_key = os.environ.get("PEXELS_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("PEXELS_API_KEY not set — run 'youtube-ai-agent onboard' to configure")
+    headers = {"Authorization": api_key}
+    index = _load_index()
+
+    videos = []
+    for size in ("large", "medium"):
+        params = {"query": keyword, "orientation": "landscape",
+                  "per_page": max(max_n, 5), "size": size}
+        try:
+            r = requests.get(PEXELS_SEARCH, headers=headers, params=params, timeout=15)
+            r.raise_for_status()
+            videos = r.json().get("videos", [])
+        except Exception:
+            videos = []
+        if videos:
+            break
+
+    if not videos:
+        raise RuntimeError(f"No Pexels results for: {keyword}")
+
+    tags = _keyword_to_tags(keyword)
+    if extra_tags:
+        tags = list(dict.fromkeys(tags + [t.lower() for t in extra_tags]))
+
+    paths = []
+    for v in videos[:max_n]:
+        vid = v.get("id")
+        if vid is None:
+            continue
+        dest = _cache_path_id(vid)
+        cached = _existing_variant(dest)
+        if cached:
+            paths.append(cached)
+        else:
+            try:
+                link = _best_file(v["video_files"])
+                _download(link, dest)
+                paths.append(dest)
+            except Exception:
+                continue
+        index[f"pex_{vid}"] = {
+            "file": os.path.basename(dest),
+            "pexels_id": vid,
+            "url": v.get("url"),
+            "duration": v.get("duration"),
+            "author": v.get("user", {}).get("name"),
+            "tags": tags,
+        }
+
+    if paths:
+        _save_index(index)
+    return paths
 
 
 def rebuild_index(keywords: list[str]) -> dict:

@@ -104,15 +104,36 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-def _font_size_for_title(title: str) -> int:
-    length = len(title)
-    if length <= 30:
-        return 95
-    if length <= 50:
-        return 80
-    if length <= 70:
-        return 68
-    return 58
+def _fit_title(title: str, max_w: int, max_h: int,
+               max_lines: int = 3) -> tuple:
+    """Trova il font piu' grande possibile per cui il titolo (avvolto su
+    al massimo max_lines righe) sta dentro max_w x max_h. Ritorna
+    (font, lines, font_size). Testo grande e leggibile, sempre."""
+    title = " ".join(title.split())  # normalizza spazi
+    best = None
+    for size in range(160, 39, -4):
+        font = _get_font(size)
+        # quanti caratteri per riga a questo size (stima su larghezza media)
+        avg_char = max(1, size * 0.55)
+        wrap_chars = max(8, int(max_w / avg_char))
+        lines = textwrap.wrap(title, width=wrap_chars)
+        if len(lines) > max_lines:
+            continue
+        # misura reale
+        widest = 0
+        for ln in lines:
+            bb = font.getbbox(ln)
+            widest = max(widest, bb[2] - bb[0])
+        line_h = size + 12
+        block_h = len(lines) * line_h
+        if widest <= max_w and block_h <= max_h:
+            best = (font, lines, size)
+            break
+    if best is None:
+        font = _get_font(44)
+        lines = textwrap.wrap(title, width=max(8, int(max_w / (44 * 0.55))))[:max_lines]
+        best = (font, lines, 44)
+    return best
 
 
 def _parse_color(color_str: str) -> tuple:
@@ -140,15 +161,23 @@ def _parse_color(color_str: str) -> tuple:
 
 def _draw_title(img: Image.Image, title: str,
                 text_color: tuple = (255, 255, 255),
-                position: str = "basso") -> Image.Image:
+                position: str = "basso", scale: float = 1.0) -> Image.Image:
     if img.size != (THUMB_W, THUMB_H):
         img = img.resize((THUMB_W, THUMB_H), Image.LANCZOS)
     img = img.convert("RGBA")
-    font_size = _font_size_for_title(title)
-    font = _get_font(font_size)
 
-    wrap_chars = max(12, int(THUMB_W * 0.85 / (font_size * 0.55)))
-    lines = textwrap.wrap(title, width=wrap_chars)
+    # area utile: ~90% larghezza, ~40% altezza per il blocco testo
+    max_text_w = int(THUMB_W * 0.90)
+    max_text_h = int(THUMB_H * 0.42)
+    font, lines, font_size = _fit_title(title, max_text_w, max_text_h)
+
+    # scala manuale (0.3-1.0): 1.0 = massimo leggibile gia' calcolato
+    scale = max(0.3, min(1.0, scale))
+    if scale < 0.999:
+        font_size = max(24, int(font_size * scale))
+        font = _get_font(font_size)
+        wrap_chars = max(8, int(max_text_w / (font_size * 0.55)))
+        lines = textwrap.wrap(" ".join(title.split()), width=wrap_chars)
 
     line_h = font_size + 12
     block_h = len(lines) * line_h + 20
@@ -175,15 +204,18 @@ def _draw_title(img: Image.Image, title: str,
     fill_rgba = (*text_color, 255)
     y = text_y_start
 
+    outline = max(2, font_size // 22)  # contorno proporzionale al font
+    shadow = max(SHADOW_OFFSET, font_size // 24)
+
     for line in lines:
         bbox = font.getbbox(line)
         line_w = bbox[2] - bbox[0]
         x = (THUMB_W - line_w) // 2
-        for dx in (-2, 0, 2):
-            for dy in (-2, 0, 2):
+        for dx in range(-outline, outline + 1):
+            for dy in range(-outline, outline + 1):
                 if dx != 0 or dy != 0:
                     draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
-        draw.text((x + SHADOW_OFFSET, y + SHADOW_OFFSET), line,
+        draw.text((x + shadow, y + shadow), line,
                   font=font, fill=(0, 0, 0, 200))
         draw.text((x, y), line, font=font, fill=fill_rgba)
         y += line_h
@@ -192,7 +224,8 @@ def _draw_title(img: Image.Image, title: str,
 
 
 def genera_thumbnail(title: str, output_path: str, mood: str = None,
-                     style: str = None, thumbnail_description: str = None) -> None:
+                     style: str = None, thumbnail_description: str = None,
+                     thumbnail_phrase: str = None) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     provider = _image_provider()
 
@@ -219,7 +252,12 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
     if _pref.get("thumbnail_testo_mostra", True):
         _color = _parse_color(_pref.get("thumbnail_testo_colore", "255,255,255"))
         _pos = _pref.get("thumbnail_testo_posizione", "basso")
-        img = _draw_title(img, title, text_color=_color, position=_pos)
+        try:
+            _scala = float(_pref.get("thumbnail_testo_scala", 1.0))
+        except (TypeError, ValueError):
+            _scala = 1.0
+        _testo = (thumbnail_phrase or "").strip() or title
+        img = _draw_title(img, _testo, text_color=_color, position=_pos, scale=_scala)
 
     if img.size != (THUMB_W, THUMB_H):
         img = img.resize((THUMB_W, THUMB_H), Image.LANCZOS)

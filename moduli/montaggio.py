@@ -46,6 +46,29 @@ _mpy_cfg.FFMPEG_BINARY = _ffmpeg()
 SEGMENT_DURATION = 5.0
 
 
+def _build_clip_sequence(clip_files: list, n_segments: int) -> list:
+    """Assegna a ogni segmento una clip distinta. Ogni clip e' usata una sola
+    volta finche' il pool non e' esaurito; solo allora si ricomincia (shuffle,
+    senza ripetere la clip a cavallo tra un giro e l'altro). Se il pool e'
+    grande quanto i segmenti, nessuna clip viene ripetuta nel video."""
+    uniq = list(dict.fromkeys(p for p in clip_files if p))  # dedup file fisici
+    if not uniq:
+        raise RuntimeError("montaggio: nessuna clip disponibile")
+    seq = []
+    pool = []
+    last = None
+    for _ in range(n_segments):
+        if not pool:
+            pool = uniq[:]
+            random.shuffle(pool)
+            if last is not None and len(pool) > 1 and pool[0] == last:
+                pool.append(pool.pop(0))
+        clip = pool.pop(0)
+        last = clip
+        seq.append(clip)
+    return seq
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))
@@ -369,6 +392,7 @@ def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, outpu
     if not keywords:
         raise RuntimeError("montaggio: nessuna keyword fornita — impossibile selezionare clip")
 
+    clip_sequence = _build_clip_sequence([clip_paths[k] for k in keywords], n_segments)
     with tempfile.TemporaryDirectory(prefix="render_", dir=os.path.dirname(output_path) or None) as tmpdir:
         segment_paths = []
         for i in range(n_segments):
@@ -377,8 +401,7 @@ def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, outpu
             if remaining <= 0:
                 break
             seg_dur = min(SEGMENT_DURATION, remaining)
-            keyword = keywords[i % len(keywords)]
-            clip_path = clip_paths[keyword]
+            clip_path = clip_sequence[i]
             seg_path = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
             _render_segment_ffmpeg(clip_path, seg_path, seg_start, seg_dur, captions.get(i))
             segment_paths.append(seg_path)
@@ -465,6 +488,7 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
     n_segments = int(total_duration / SEGMENT_DURATION) + 1
     segments = []
 
+    clip_sequence = _build_clip_sequence([clip_paths[k] for k in keywords], n_segments)
     for i in range(n_segments):
         seg_start = i * SEGMENT_DURATION
         remaining = total_duration - seg_start
@@ -472,8 +496,7 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
             break
         seg_dur = min(SEGMENT_DURATION, remaining)
 
-        keyword = keywords[i % len(keywords)]
-        clip_path = clip_paths[keyword]
+        clip_path = clip_sequence[i]
 
         seg = _make_segment(clip_path, seg_start, seg_dur)
         segments.append(seg)

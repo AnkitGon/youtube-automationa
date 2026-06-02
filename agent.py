@@ -64,7 +64,7 @@ _check_env()
 
 from moduli.cervello import genera_topic, genera_contenuto
 from moduli.audio import genera_audio
-from moduli.asset import scarica_clip
+from moduli.asset import scarica_clips
 from moduli.montaggio import monta_video
 from moduli.thumbnail import genera_thumbnail
 from moduli.pubblica import pubblica_video, calcola_publish_slots
@@ -234,16 +234,35 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     notify_step("clips", "Scarico clip video da Pexels...")
     clip_paths = {}
     keywords = content.get("video_keywords", [])
+
+    # quante clip distinte servono per non ripeterne nessuna nel video
+    try:
+        from moduli.montaggio import _media_duration, SEGMENT_DURATION
+        _dur = _media_duration(AUDIO_PATH)
+        target_clips = int(_dur / SEGMENT_DURATION) + 1
+    except Exception:
+        target_clips = max(len(keywords), 20)
+    # quante clip scaricare per keyword per coprire i segmenti (max 5 = limite Pexels per_page utile)
+    per_kw = max(1, min(5, -(-target_clips // max(1, len(keywords)))))
+    _log(f"  → Servono ~{target_clips} clip distinte → {per_kw} per keyword")
+
+    seen = set()
     for i, kw in enumerate(keywords):
-        _log(f"  → [{i+1}/{len(keywords)}] Cerco: {kw}")
+        _log(f"  → [{i+1}/{len(keywords)}] Cerco: {kw} (x{per_kw})")
         try:
-            path = scarica_clip(kw)
-            clip_paths[kw] = path
-            _log(f"     ✓ Scaricata")
+            paths = scarica_clips(kw, max_n=per_kw)
+            nuove = 0
+            for p in paths:
+                if p in seen:
+                    continue
+                seen.add(p)
+                clip_paths[f"{kw}#{nuove}"] = p
+                nuove += 1
+            _log(f"     ✓ {nuove} clip distinte")
         except Exception as e:
             _log(f"     ✗ Saltata: {e}")
 
-    _log(f"  → {len(clip_paths)}/{len(keywords)} clip scaricate")
+    _log(f"  → {len(clip_paths)} clip distinte scaricate (target {target_clips})")
     if not clip_paths:
         msg = "Nessuna clip scaricata — pipeline interrotta"
         _log(f"  ✗ ERRORE: {msg}")
@@ -267,6 +286,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     genera_thumbnail(
         content["title"], THUMB_PATH,
         thumbnail_description=content.get("thumbnail_description"),
+        thumbnail_phrase=content.get("thumbnail_phrase"),
     )
     _log(f"  → Thumbnail salvata: {THUMB_PATH}")
 
