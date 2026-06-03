@@ -31,7 +31,8 @@ Target duration: {target_minutes} minutes = ~{target_words} words
 Reply ONLY with valid JSON, exact structure:
 {{
   "title": "Compelling title, max 70 chars",
-  "thumbnail_phrase": "ONE short punchy phrase for the thumbnail cover, max 4 words / 25 chars, ALL CAPS, captures the whole video hook",
+  "thumbnail_phrase": "2-3 words MAX, ALL CAPS, bold visual hook for the thumbnail — never more than 3 words, never cut off",
+  "thumbnail_font_size": "ONE letter: A (very large, best for 2 words), B (large, 2 words), C (medium, 2-3 words, default), D (smaller, 3 words)",
   "description": "SEO-optimized description, 200-300 words, include keywords naturally",
   "tags": ["tag1", "tag2", "tag3"],
   "script": "Full narration. Engaging, clear, conversational. Exactly {target_words} words. No headers or sections, flowing prose.",
@@ -45,7 +46,8 @@ Reply ONLY with valid JSON, exact structure:
 
 Rules:
 - title: follow the title_style guidance above
-- thumbnail_phrase: max 4 words, big and readable on the cover; NOT the full title, a single bold hook that sums up the video
+- thumbnail_phrase: EXACTLY 2-3 words, ALL CAPS, bold hook — never more than 3 words
+- thumbnail_font_size: A if 2 short words, B if 2 longer words, C if 3 words (default), D if 3 long words
 - tags: 12-15 relevant tags
 - script: exactly {target_words} words, engaging pace, no bullet points
 - video_keywords: 12-18 unique English phrases describing stock video scenes (2-4 words each, concrete and visual)

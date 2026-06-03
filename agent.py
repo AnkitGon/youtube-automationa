@@ -287,6 +287,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         content["title"], THUMB_PATH,
         thumbnail_description=content.get("thumbnail_description"),
         thumbnail_phrase=content.get("thumbnail_phrase"),
+        thumbnail_font_size=content.get("thumbnail_font_size"),
     )
     _log(f"  → Thumbnail salvata: {THUMB_PATH}")
 

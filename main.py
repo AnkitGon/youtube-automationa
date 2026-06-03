@@ -65,6 +65,7 @@ def run():
         content["title"], THUMB_PATH,
         thumbnail_description=content.get("thumbnail_description"),
         thumbnail_phrase=content.get("thumbnail_phrase"),
+        thumbnail_font_size=content.get("thumbnail_font_size"),
     )
     print(f"  Saved: {THUMB_PATH}")
 
