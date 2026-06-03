@@ -119,61 +119,66 @@ CHANNEL MANAGEMENT VIA COMMANDS:
 /coda /topic /deltopic
 /canale /setdesc /video /playlist /nuovaplaylist /commenti
 
-REAL ACTIONS (tags executed automatically — ALWAYS use them when requested):
-[AGGIUNGI_TOPIC: title] → adds topic to the END of the queue
-[PRIORITA_TOPIC: title] → adds topic to the HEAD of the queue (next video)
-[FORZA_ORA: title] → puts at the head of the queue AND starts the pipeline immediately
-[RINOMINA_CANALE: new name] → changes the YouTube channel name via API
-[AGGIORNA_DESC: description text] → updates the channel description via API
-[AGGIORNA_KEYWORDS: keyword1, keyword2] → updates channel keywords via API
-[RICORDA: fact] → saves to long-term memory (preferences, channel info, instructions)
-[SETPREF: key=value] → updates video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false — show/hide title text on thumbnail), thumbnail_testo_colore (color name like bianco/rosso/giallo/blu/verde/arancione/viola/cyan/rosa or R,G,B like 255,220,0), thumbnail_testo_posizione (alto/basso — text position on thumbnail), thumbnail_testo_scala (0.3-1.0 — text size on thumbnail; 1.0 = biggest/most readable, lower = smaller), tts_voce (Edge TTS voice name — use exact format like en-US-GuyNeural, it-IT-DiegoNeural, it-IT-ElsaNeural, en-US-AriaNeural, en-GB-SoniaNeural). ALWAYS use this tag when the user expresses a preference about video type, thumbnail appearance, or voice.
-Examples of voice commands → correct tags:
-- "voce italiana" → [SETPREF: tts_voce=it-IT-DiegoNeural]
-- "voce femminile" → [SETPREF: tts_voce=en-US-AriaNeural]
-- "voce italiana femminile" → [SETPREF: tts_voce=it-IT-ElsaNeural]
-- "voce british" → [SETPREF: tts_voce=en-GB-SoniaNeural]
-- "video da 5 minuti" → [SETPREF: durata_target_minuti=5]
-- "video più corti, 3 minuti" → [SETPREF: durata_target_minuti=3]
-[DIMENTICA: text] → removes from memory
-[VIDEO_TITOLO: video_id | new title] → changes the title of an already published video
-[VIDEO_DESC: video_id | new description] → changes the description of an already published video
-[VIDEO_TAGS: video_id | tag1, tag2, tag3] → changes the tags of an already published video
-[VIDEO_THUMB: video_id] → re-uploads the thumbnail on an already published video (uses output/thumbnail.jpg)
-[ELIMINA_TOPIC: N] → removes topic number N from the queue (1 = first)
-[RIAVVIA_MONTAGGIO] → clears montage checkpoint and forces pipeline restart
-[BLOCCA_PIPELINE] → stops/shuts down/blocks the pipeline in progress
+STANDALONE GENERATION ACTIONS (execute immediately, no pipeline, no queue):
+[GENERA_COPERTINA: title] → generate thumbnail image and send it. Use for: "genera/crea/mostrami una copertina", "thumbnail di prova". ONLY this tag — no [FORZA_ORA], no [AGGIUNGI_TOPIC].
+[GENERA_AUDIO: text] → generate TTS audio from text and send it as audio file. Use for: "genera audio", "sentimi la voce", "prova TTS", "come suona questo testo". ONLY this tag.
+[GENERA_SCRIPT: topic] → generate full video script (title + script + description + tags) and send as text. Use for: "scrivi uno script", "genera uno script su X", "fammi vedere lo script". Does NOT start pipeline. ONLY this tag.
+[INVIA_VIDEO] → send the last produced video file. Use for: "mandami il video", "inviami il video", "vedi il video". No payload.
 
-CRITICAL RULE ON SEARCHES: when the user asks for news or recent information, use the [WEB SEARCH] context already provided and answer with that data. Do NOT add topics to the queue, do NOT use [AGGIUNGI_TOPIC] or [FORZA_ORA].
+QUEUE & PIPELINE ACTIONS (require explicit intent to produce/publish):
+[AGGIUNGI_TOPIC: title] → add topic to end of queue
+[PRIORITA_TOPIC: title] → add topic to head of queue (next video)
+[FORZA_ORA: title] → add to head of queue AND start pipeline immediately (requires confirmation)
 
-CRITICAL RULE ON PREFERENCES/SETTINGS: when the user changes a setting or style (thumbnail style, clip style, pace, language, volume, topics to avoid, thumbnail text color/position/visibility, etc.) use ONLY [SETPREF: key=value]. NEVER add [FORZA_ORA], [AGGIUNGI_TOPIC] or [PRIORITA_TOPIC] — changing a preference does NOT mean they want a new video now.
-Examples of thumbnail text commands → correct tags:
-- "metti il testo giallo" → [SETPREF: thumbnail_testo_colore=giallo]
-- "testo in alto" → [SETPREF: thumbnail_testo_posizione=alto]
-- "no testo sulla copertina" → [SETPREF: thumbnail_testo_mostra=false]
-- "testo più grande" / "ingrandisci il testo" → [SETPREF: thumbnail_testo_scala=1.0]
-- "testo più piccolo" / "rimpicciolisci il testo" → [SETPREF: thumbnail_testo_scala=0.6]
-- "testo al 70%" → [SETPREF: thumbnail_testo_scala=0.7]
-- "aggiungi il titolo rosso in alto" → [SETPREF: thumbnail_testo_colore=rosso] + [SETPREF: thumbnail_testo_posizione=alto] + [SETPREF: thumbnail_testo_mostra=true]
+CHANNEL API ACTIONS (execute directly, no confirmation needed):
+[AGGIORNA_DESC: description text] → update channel description via API
+[AGGIORNA_KEYWORDS: keyword1, keyword2] → update channel keywords via API
+[RINOMINA_CANALE: new name] → change channel name via API (requires confirmation — irreversible)
+[ELIMINA_TOPIC: N] → remove topic number N from the queue (1 = first)
 
-CRITICAL RULE ON TAGS: only use the tags listed above. Do NOT invent tags — they won't be executed. If no suitable tag exists, perform the action with words.
+MEMORY & PREFERENCES:
+[RICORDA: fact] → save to long-term memory
+[DIMENTICA: text] → remove from memory
+[SETPREF: key=value] → update video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false), thumbnail_testo_colore (color name or R,G,B), thumbnail_testo_posizione (alto/basso), thumbnail_testo_scala (0.3-1.0), tts_voce (Edge TTS voice name). ALWAYS use this tag when the user expresses a preference.
+Examples: "voce italiana" → [SETPREF: tts_voce=it-IT-DiegoNeural] | "voce femminile" → [SETPREF: tts_voce=en-US-AriaNeural] | "voce british" → [SETPREF: tts_voce=en-GB-SoniaNeural] | "video da 5 minuti" → [SETPREF: durata_target_minuti=5]
 
-WHEN TO USE TAGS:
-- "create/publish this video" or "do this now" → [FORZA_ORA: title]
-- "next video on X" or "prioritize" → [PRIORITA_TOPIC: title]
-- "add to queue" without urgency → [AGGIUNGI_TOPIC: title]
-- Rename channel → [RINOMINA_CANALE: name]
-- Change description → [AGGIORNA_DESC: text]
-- Stable info/preferences → [RICORDA: fact]
-- Do NOT use only [RICORDA] when you can act with an API tag — ACT AND THEN remember
+PUBLISHED VIDEO EDITING (requires confirmation — affects live content):
+[VIDEO_TITOLO: video_id | new title] → change title of published video
+[VIDEO_DESC: video_id | new description] → change description of published video
+[VIDEO_TAGS: video_id | tag1, tag2, tag3] → change tags of published video
+[VIDEO_THUMB: video_id] → re-upload thumbnail on published video (uses output/thumbnail.jpg)
+
+PIPELINE CONTROL:
+[RIAVVIA_MONTAGGIO] → clear checkpoint and restart pipeline (requires confirmation)
+[BLOCCA_PIPELINE] → stop pipeline in progress (requires confirmation)
+
+CRITICAL RULE ON SEARCHES: when the user asks for news or recent information, use the [WEB SEARCH] context already provided. Do NOT add topics to the queue, do NOT use [AGGIUNGI_TOPIC] or [FORZA_ORA].
+
+CRITICAL RULE ON PREFERENCES/SETTINGS: use ONLY [SETPREF: key=value]. NEVER add [FORZA_ORA], [AGGIUNGI_TOPIC] or [PRIORITA_TOPIC] — changing a preference does NOT mean they want a new video now.
+Examples: "metti il testo giallo" → [SETPREF: thumbnail_testo_colore=giallo] | "testo in alto" → [SETPREF: thumbnail_testo_posizione=alto] | "no testo sulla copertina" → [SETPREF: thumbnail_testo_mostra=false] | "testo più grande" → [SETPREF: thumbnail_testo_scala=1.0]
+
+CRITICAL RULE ON TAGS: only use the tags listed above. Do NOT invent tags — they won't be executed.
+
+DECISION GUIDE — which tag to use:
+- "genera copertina / thumbnail" → [GENERA_COPERTINA: title]
+- "genera audio / sentimi la voce" → [GENERA_AUDIO: text]
+- "scrivi/genera uno script" → [GENERA_SCRIPT: topic]
+- "mandami il video / invia il video" → [INVIA_VIDEO]
+- "crea/pubblica questo video / fallo ora" → [FORZA_ORA: title]
+- "prossimo video su X / priorità" → [PRIORITA_TOPIC: title]
+- "aggiungi in coda" → [AGGIUNGI_TOPIC: title]
+- "aggiorna descrizione canale" → [AGGIORNA_DESC: text]
+- "aggiorna keyword canale" → [AGGIORNA_KEYWORDS: kw1, kw2]
+- "rimuovi topic N" → [ELIMINA_TOPIC: N]
+- "ricorda questa info" → [RICORDA: fact]
 
 ABSOLUTE RULES:
-- Always reply in {_AGENT_LANGUAGE} — this is non-negotiable
+- Always reply in {_AGENT_LANGUAGE} — non-negotiable
 - When asked to DO something on the channel → use the API tag, don't explain
 - When asked to develop a topic → do it immediately in full
 - Never say "I can't" — use the available tags or generate the content
 - Profile picture: impossible via API (Google limitation)
-- Channel name: impossible via API for personal accounts — tell the user to go to YouTube Studio → Customization → Basic info, or to convert to a Brand Account
+- Channel name: impossible via API for personal accounts — tell user to go to YouTube Studio → Customization → Basic info, or convert to Brand Account
 """
 
 
@@ -422,6 +427,7 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     saved_memories = []
     removed_memories = []
     api_results = []
+    deferred_tasks = []  # list of (task_type, payload) for async media generation
 
     queue = state.get("topic_queue", [])
 
@@ -509,25 +515,21 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _aggiorna_desc(m):
         from moduli.canale import aggiorna_canale
         desc = m.group(1).strip()
-        api_results.append(_queue_pending_action(state, "AGGIORNA_DESC", desc, "aggiorna descrizione canale"))
-        return ""
         try:
             aggiorna_canale(description=desc)
-            api_results.append(f"✅ Descrizione canale aggiornata")
+            api_results.append("✅ Descrizione canale aggiornata.")
         except Exception as e:
-            api_results.append(f"❌ Errore aggiornamento descrizione: {e}")
+            api_results.append(f"❌ Errore aggiornamento descrizione: {_h(str(e))}")
         return ""
 
     def _aggiorna_keywords(m):
         from moduli.canale import aggiorna_canale
         kw = m.group(1).strip()
-        api_results.append(_queue_pending_action(state, "AGGIORNA_KEYWORDS", kw, f"aggiorna keyword: {kw}"))
-        return ""
         try:
             aggiorna_canale(keywords=kw)
-            api_results.append(f"✅ Keyword canale aggiornate")
+            api_results.append("✅ Keyword canale aggiornate.")
         except Exception as e:
-            api_results.append(f"❌ Errore keyword: {e}")
+            api_results.append(f"❌ Errore keyword: {_h(str(e))}")
         return ""
 
     def _video_titolo(m):
@@ -584,20 +586,18 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
 
     def _elimina_topic(m):
         raw = m.group(1).strip()
-        api_results.append(_queue_pending_action(state, "ELIMINA_TOPIC", raw, f"rimuovi topic {raw}"))
-        return ""
         try:
             idx = int(raw) - 1
         except ValueError:
-            api_results.append(f"❌ [ELIMINA_TOPIC] numero non valido: {raw}")
+            api_results.append(f"❌ [ELIMINA_TOPIC] numero non valido: {_h(raw)}")
             return ""
         q = state.get("topic_queue", [])
         if idx < 0 or idx >= len(q):
-            api_results.append(f"❌ Topic {raw} non esiste (coda ha {len(q)} elementi)")
+            api_results.append(f"❌ Topic {_h(raw)} non esiste (coda ha {len(q)} elementi)")
             return ""
         rimosso = q.pop(idx)
         state["topic_queue"] = q
-        api_results.append(f"🗑 Topic rimosso: <i>{rimosso}</i>\nRimanenti: {len(q)}")
+        api_results.append(f"🗑 Topic rimosso: <i>{_h(rimosso)}</i> — rimasti: {len(q)}")
         return ""
 
     def _riavvia_montaggio(m):
@@ -616,6 +616,22 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         state["abort_pipeline"] = True
         state.pop("force_run", None)
         api_results.append("⛔ Pipeline bloccata. Si fermerà al prossimo step.")
+        return ""
+
+    def _genera_copertina(m):
+        deferred_tasks.append(("thumbnail", m.group(1).strip()))
+        return ""
+
+    def _genera_audio(m):
+        deferred_tasks.append(("audio", m.group(1).strip()))
+        return ""
+
+    def _genera_script(m):
+        deferred_tasks.append(("script", m.group(1).strip()))
+        return ""
+
+    def _invia_video(m):
+        deferred_tasks.append(("video", None))
         return ""
 
     def _video_thumb(m):
@@ -637,13 +653,17 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
             api_results.append(f"❌ Errore thumbnail: {e}")
         return ""
 
+    clean = re.sub(r'\[GENERA_COPERTINA:\s*([^\]]+)\]', _genera_copertina, reply)
+    clean = re.sub(r'\[GENERA_AUDIO:\s*([^\]]+)\]', _genera_audio, clean)
+    clean = re.sub(r'\[GENERA_SCRIPT:\s*([^\]]+)\]', _genera_script, clean)
+    clean = re.sub(r'\[INVIA_VIDEO\]', _invia_video, clean)
     if is_search or is_pref_only:
         # rimuovi silenziosamente i tag pipeline — utente voleva solo info o cambiare setting
-        clean = re.sub(r'\[AGGIUNGI_TOPIC:\s*[^\]]+\]', '', reply)
+        clean = re.sub(r'\[AGGIUNGI_TOPIC:\s*[^\]]+\]', '', clean)
         clean = re.sub(r'\[PRIORITA_TOPIC:\s*[^\]]+\]', '', clean)
         clean = re.sub(r'\[FORZA_ORA:\s*[^\]]+\]', '', clean)
     else:
-        clean = re.sub(r'\[AGGIUNGI_TOPIC:\s*([^\]]+)\]', _add_topic, reply)
+        clean = re.sub(r'\[AGGIUNGI_TOPIC:\s*([^\]]+)\]', _add_topic, clean)
         clean = re.sub(r'\[PRIORITA_TOPIC:\s*([^\]]+)\]', _priorita_topic, clean)
         clean = re.sub(r'\[FORZA_ORA:\s*([^\]]+)\]', _forza_ora, clean)
     clean = re.sub(r'\[RICORDA:\s*([^\]]+)\]', _ricorda, clean)
@@ -663,7 +683,7 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     if added_topics:
         state["topic_queue"] = queue
 
-    return clean.strip(), added_topics, saved_memories, removed_memories, api_results
+    return clean.strip(), added_topics, saved_memories, removed_memories, api_results, deferred_tasks
 
 from moduli.state_io import load_state as _load_state, save_state as _save_state
 
@@ -727,7 +747,10 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "<b>🧠 Memoria:</b>\n"
         "/memoria — vedi cosa ricorda\n"
         "/dimentica &lt;n&gt; — rimuovi un ricordo\n\n"
-        "💬 Scrivi qualsiasi cosa per parlare con l'AI.",
+        "💬 Scrivi qualsiasi cosa per parlare con l'AI.\n\n"
+        "<b>Esempi:</b>\n"
+        "• <i>genera una copertina di prova</i> → thumbnail standalone\n"
+        "• <i>fai il prossimo video su X</i> → pipeline completa",
         parse_mode="HTML"
     )
 
@@ -1340,7 +1363,7 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     reply, new_history = await future
 
     # esegui azioni embedded nella risposta
-    clean_reply, added_topics, saved_memories, removed_memories, api_results = _execute_actions(
+    clean_reply, added_topics, saved_memories, removed_memories, api_results, deferred_tasks = _execute_actions(
         reply, state,
         is_search=_needs_web_search(text),
         is_pref_only=_is_pref_only_request(text),
@@ -1376,6 +1399,78 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         )
     for msg in api_results:
         await update.message.reply_text(msg, parse_mode="HTML")
+
+    for task_type, payload in deferred_tasks:
+        if task_type == "thumbnail":
+            await update.message.chat.send_action("upload_photo")
+            preview_path = "output/thumbnail_preview.jpg"
+            try:
+                from moduli.thumbnail import genera_thumbnail
+                await loop.run_in_executor(None, lambda t=payload: genera_thumbnail(t, preview_path))
+                with open(preview_path, "rb") as f:
+                    await update.message.reply_photo(f, caption=f"🖼 <b>{_h(payload)}</b>", parse_mode="HTML")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Errore copertina: {_h(str(e))}", parse_mode="HTML")
+
+        elif task_type == "audio":
+            await update.message.chat.send_action("record_voice")
+            audio_path = "output/audio_preview.mp3"
+            try:
+                from moduli.audio import genera_audio
+                await loop.run_in_executor(None, lambda t=payload: genera_audio(t, audio_path))
+                with open(audio_path, "rb") as f:
+                    await update.message.reply_audio(f, title="Audio preview")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Errore audio: {_h(str(e))}", parse_mode="HTML")
+
+        elif task_type == "script":
+            await update.message.chat.send_action("typing")
+            try:
+                from moduli.cervello import genera_contenuto
+                from moduli.strategia import calcola_strategia
+                def _gen_script(topic=payload):
+                    strat = calcola_strategia([])
+                    return genera_contenuto(topic, strategy=strat)
+                content = await loop.run_in_executor(None, _gen_script)
+                script_msg = (
+                    f"📝 <b>{_h(content['title'])}</b>\n\n"
+                    f"<b>Script ({len(content.get('script','').split())} parole):</b>\n"
+                    f"{_h(content.get('script','')[:3500])}"
+                )
+                for i in range(0, len(script_msg), 4096):
+                    await update.message.reply_text(script_msg[i:i+4096], parse_mode="HTML")
+                if content.get("description"):
+                    desc_msg = f"<b>Descrizione:</b>\n{_h(content['description'][:1000])}"
+                    await update.message.reply_text(desc_msg, parse_mode="HTML")
+                if content.get("tags"):
+                    await update.message.reply_text(f"🏷 {_h(', '.join(content['tags']))}", parse_mode="HTML")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Errore script: {_h(str(e))}", parse_mode="HTML")
+
+        elif task_type == "video":
+            video_path = "output/output_finale.mp4"
+            if os.path.exists(video_path):
+                size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                if size_mb <= 50:
+                    await update.message.chat.send_action("upload_video")
+                    with open(video_path, "rb") as f:
+                        await update.message.reply_video(f, caption="🎬 Ultimo video prodotto")
+                else:
+                    fresh = _load_state()
+                    video_ids = fresh.get("video_ids", [])
+                    if video_ids:
+                        await update.message.reply_text(
+                            f"📦 Video troppo grande per Telegram ({size_mb:.0f} MB).\n"
+                            f"🔗 <a href='https://youtu.be/{_h(video_ids[0])}'>Guardalo su YouTube</a>",
+                            parse_mode="HTML", disable_web_page_preview=False
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"📦 Video troppo grande per Telegram ({size_mb:.0f} MB) e nessun video ancora pubblicato.",
+                            parse_mode="HTML"
+                        )
+            else:
+                await update.message.reply_text("❌ Nessun video trovato in output/output_finale.mp4 — avvia la pipeline prima.")
 
 
 def start_bot() -> None:

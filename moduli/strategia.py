@@ -17,8 +17,14 @@ DEFAULT_STRATEGY = {
 
 STRATEGY_PROMPT = """You are a long-term YouTube growth strategist for a tech/AI channel.
 
-Recent video performance:
+Recent video performance (newest first):
 {performance_json}
+
+Top performing videos (highest CTR × retention score):
+{top_performers}
+
+Underperforming videos (lowest score):
+{underperformers}
 
 Previous strategies tried (most recent first):
 {history_json}
@@ -27,26 +33,29 @@ User preferences (HARD CONSTRAINTS — never violate):
 {preferences}
 
 Produce an EVOLVED strategy that:
-- Learns from what's working and what isn't (use CTR, retention, views)
-- Avoids repeating failed approaches from history
+- Learns from what's working and what isn't (CTR, retention, views)
+- Identifies TOPIC PATTERNS from top vs bottom performers (what subject matter, angle, framing worked?)
+- Avoids repeating failed title styles, tones, or topic angles
 - Doubles down on patterns that increased CTR or retention
 - Respects user preferences absolutely
 
 Reply ONLY valid JSON:
 {{
-  "topic_focus": "what topics/angles to pursue next",
-  "title_style": "concrete title writing style",
+  "topic_focus": "specific topic areas/angles that showed best performance, or new territory to test if all underperformed",
+  "title_style": "concrete actionable title writing style based on what worked",
   "tone": "narration tone",
   "hook_strength": "soft | medium | aggressive",
-  "notes": "specific lessons learned from past performance + improvement plan for next video"
+  "avoid_patterns": "specific title styles, tones, or topic angles that underperformed — avoid these",
+  "notes": "3-5 specific data-backed lessons from the performance data + concrete improvement plan"
 }}
 
 Rules:
-- If avg CTR < 3%: bolder, more curiosity-driven titles
-- If retention < 40%: shorter sentences, harder hook, more pacing variety
-- If views < 100 on multiple videos: experiment with NEW topic angles, not just title tweaks
-- If a strategy from history shows improvement: keep that direction
-- Reply ONLY with JSON, no explanation.
+- Avg CTR < 3%: bolder titles, stronger curiosity gap, more provocative hooks
+- Retention < 40%: harder opening hook, shorter sentences, faster pacing, cut dead intros
+- Views < 100 on 3+ videos in a row: pivot topic category entirely, not just title tweaks
+- If top performers share a topic pattern: that's the direction to pursue
+- If a past strategy led to measurable improvement: continue that trajectory
+- Reply ONLY with JSON, no explanation outside JSON.
 """
 
 
@@ -65,33 +74,57 @@ def _save_history(history: list) -> None:
         json.dump(history[-20:], f, indent=2, ensure_ascii=False)
 
 
+def _score_video(v: dict) -> float:
+    views = float(v.get("views") or 0)
+    ctr = float(v.get("ctr_percent") or 0)
+    dur = max(float(v.get("duration_seconds") or 1), 1.0)
+    retention = float(v.get("avg_view_duration_seconds") or 0) / dur * 100
+    return views * 0.4 + ctr * 30 + retention * 2
+
+
+def _perf_snapshot(videos: list[dict]) -> list[dict]:
+    return [
+        {
+            "title": v.get("title", "")[:60],
+            "views": v.get("views", 0),
+            "ctr_pct": round(float(v.get("ctr_percent") or 0), 2),
+            "retention_pct": round(
+                float(v.get("avg_view_duration_seconds") or 0) /
+                max(float(v.get("duration_seconds") or 1), 1.0) * 100, 1
+            ),
+            "score": round(_score_video(v), 1),
+        }
+        for v in videos
+    ]
+
+
 def calcola_strategia(performance: list[dict]) -> dict:
     pref = carica_preferenze()
     if not performance:
         return {**DEFAULT_STRATEGY, "topic_focus": ", ".join(pref.get("argomenti_preferiti", []))}
     history = _load_history()
+
+    scored = sorted(performance, key=_score_video, reverse=True)
+    top = _perf_snapshot(scored[:3])
+    bottom = _perf_snapshot(scored[-3:]) if len(scored) > 3 else []
+
     try:
         prompt = STRATEGY_PROMPT.format(
-            performance_json=json.dumps(performance, indent=2),
+            performance_json=json.dumps(_perf_snapshot(performance), indent=2),
+            top_performers=json.dumps(top, indent=2),
+            underperformers=json.dumps(bottom, indent=2),
             history_json=json.dumps(history[-5:], indent=2) if history else "[]",
             preferences=json.dumps(pref, indent=2, ensure_ascii=False),
         )
-        text = chat_ollama(prompt, max_tokens=600)
+        text = chat_ollama(prompt, max_tokens=800)
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             strategy = json.loads(match.group())
-            # salva nella storia per evoluzione futura
             history.append({
                 "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
                 "strategy": strategy,
-                "perf_snapshot": [
-                    {"title": v.get("title", "")[:50],
-                     "views": v.get("views", 0),
-                     "ctr": v.get("ctr_percent", 0),
-                     "retention_pct": int(v.get("avg_view_duration_seconds", 0) /
-                                          max(v.get("duration_seconds", 1), 1) * 100)}
-                    for v in performance[:5]
-                ],
+                "top_performers": top,
+                "underperformers": bottom,
             })
             _save_history(history)
             return strategy

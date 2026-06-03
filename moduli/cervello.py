@@ -9,9 +9,10 @@ TOPIC_PROMPT = """You are a viral YouTube content strategist for a tech/AI chann
 Today's date: {current_date}
 Current strategy guidance: {strategy_notes}
 Topic focus: {topic_focus}
-
+{trending_block}
 Generate ONE trending topic for a YouTube video about AI or technology.
 Base your suggestion on what is relevant and trending as of {current_date}.
+Use the trending news above as inspiration for a timely, high-interest angle — not a copy.
 Avoid repeating these recent topics: {recent_topics}
 Reply with ONLY the topic as a short phrase (3-7 words). No explanation, no punctuation."""
 
@@ -69,13 +70,26 @@ def _parse_json(text: str) -> dict:
     return data
 
 
+def _fetch_trending() -> str:
+    try:
+        from moduli.web_search import cerca_notizie
+        results = cerca_notizie("AI technology breakthrough news 2026", max_results=5)
+        if results:
+            return f"\nTRENDING NOW (use as inspiration for a timely topic angle):\n{results}\n"
+    except Exception:
+        pass
+    return ""
+
+
 def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
     strategy = strategy or {}
+    trending = _fetch_trending()
     prompt = TOPIC_PROMPT.format(
         current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         strategy_notes=strategy.get("notes", "Standard approach"),
         topic_focus=strategy.get("topic_focus", "AI and technology trends"),
         recent_topics=", ".join(recent_topics or []) or "none",
+        trending_block=trending,
     )
     return chat_ollama(prompt, max_tokens=64).strip()
 
