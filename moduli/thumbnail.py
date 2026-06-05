@@ -273,7 +273,8 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
         except (TypeError, ValueError):
             _scala = 1.0
         _testo = (thumbnail_phrase or "").strip() or title
-        _preset = thumbnail_font_size or _pref.get("thumbnail_font_size", "C")
+        # pref vince su scelta LLM se impostata, altrimenti LLM, altrimenti C
+        _preset = _pref.get("thumbnail_font_size") or thumbnail_font_size or "C"
         img = _draw_title(img, _testo, text_color=_color, position=_pos,
                           scale=_scala, font_size_preset=_preset)
 
