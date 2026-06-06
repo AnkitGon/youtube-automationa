@@ -156,7 +156,7 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-_FONT_PRESETS = {"A": 140, "B": 110, "C": 80, "D": 60}
+_FONT_PRESETS = {"A": 240, "B": 200, "C": 160, "D": 120}
 
 
 def _fit_title(title: str, max_w: int, max_h: int,
