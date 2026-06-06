@@ -1372,12 +1372,27 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     _save_history(state, chat_id, new_history)
     _save_state(state)
 
-    msg = clean_reply or reply or "⚠️ Risposta vuota dal modello AI. Riprova."
-    if len(msg) > 4096:
-        for i in range(0, len(msg), 4096):
-            await update.message.reply_text(msg[i:i+4096])
+    # Se la risposta era SOLO tag (clean vuoto) ma ci sono azioni in coda,
+    # non rimandare il tag grezzo all'utente: lo confermano i messaggi azione.
+    had_actions = bool(deferred_tasks or api_results or added_topics
+                       or saved_memories or removed_memories)
+    if clean_reply:
+        msg = clean_reply
+    elif had_actions:
+        msg = None  # le conferme azione sotto parlano da sole
     else:
-        await update.message.reply_text(msg)
+        msg = reply or "⚠️ Risposta vuota dal modello AI. Riprova."
+    if msg:
+        if len(msg) > 4096:
+            for i in range(0, len(msg), 4096):
+                await update.message.reply_text(msg[i:i+4096])
+        else:
+            await update.message.reply_text(msg)
+    if deferred_tasks:
+        labels = {"thumbnail": "🖼 Genero la copertina…", "audio": "🎙 Genero l'audio…",
+                  "script": "📝 Scrivo lo script…", "video": "🎬 Recupero il video…"}
+        for tt, _p in deferred_tasks:
+            await update.message.reply_text(labels.get(tt, "⏳ Eseguo…"))
 
     if added_topics:
         elenco = "\n".join(f"• {t}" for t in added_topics)

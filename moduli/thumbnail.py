@@ -57,6 +57,8 @@ def _fetch_image_hf(prompt: str) -> Image.Image:
 
 
 def _fetch_image_openrouter(prompt: str) -> Image.Image:
+    """OpenRouter image gen via chat-completions modalities (no /images endpoint)."""
+    import base64
     key = os.environ.get("OPENROUTER_API_KEY", "")
     headers = {
         "Authorization": f"Bearer {key}",
@@ -64,13 +66,20 @@ def _fetch_image_openrouter(prompt: str) -> Image.Image:
     }
     payload = {
         "model": OPENROUTER_IMAGE_MODEL,
-        "prompt": prompt,
-        "size": f"{THUMB_W}x{THUMB_H}",
-        "n": 1,
+        "modalities": ["image", "text"],
+        "messages": [{"role": "user", "content": prompt}],
     }
-    r = requests.post(OPENROUTER_IMAGE_URL, headers=headers, json=payload, timeout=120)
+    r = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                      headers=headers, json=payload, timeout=120)
     r.raise_for_status()
-    url = r.json()["data"][0]["url"]
+    msg = r.json()["choices"][0]["message"]
+    images = msg.get("images") or []
+    if not images:
+        raise RuntimeError("OpenRouter: nessuna immagine nella risposta")
+    url = images[0]["image_url"]["url"]
+    if url.startswith("data:"):
+        b64 = url.split(",", 1)[1]
+        return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
     img_r = requests.get(url, timeout=60)
     img_r.raise_for_status()
     return Image.open(BytesIO(img_r.content)).convert("RGB")
@@ -90,9 +99,41 @@ def _fetch_image_pollinations(title: str, mood: str = None, style: str = None) -
         f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}"
         f"?width={THUMB_W}&height={THUMB_H}&nologo=true&enhance=true&model=flux"
     )
-    r = requests.get(url, timeout=90)
+    # Anonymous tier ora ha coda max=1 (402). Token gratuito da enter.pollinations.ai
+    # passato via POLLINATIONS_TOKEN sblocca l'accesso.
+    headers = {}
+    token = os.environ.get("POLLINATIONS_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    r = requests.get(url, headers=headers, timeout=90)
     r.raise_for_status()
+    ct = r.headers.get("content-type", "")
+    if "image" not in ct:
+        raise RuntimeError(f"Pollinations non-image response: {r.text[:160]}")
     return Image.open(BytesIO(r.content)).convert("RGB")
+
+
+def _fetch_image_placeholder(title: str, mood: str = None, **_) -> Image.Image:
+    """Sfondo gradiente generato localmente — nessuna rete. Ultima spiaggia
+    cosi' una copertina viene SEMPRE prodotta (testo overlay sopra)."""
+    palettes = {
+        "epic":       ((10, 5, 30),   (90, 20, 60)),
+        "chill":      ((20, 40, 60),  (60, 110, 130)),
+        "mysterious": ((5, 15, 25),   (15, 60, 70)),
+        "upbeat":     ((40, 10, 60),  (130, 40, 90)),
+        "tense":      ((30, 5, 5),    (90, 15, 15)),
+    }
+    top, bot = palettes.get((mood or "").lower(), ((8, 12, 28), (35, 50, 90)))
+    col = Image.new("RGB", (1, THUMB_H))
+    px = col.load()
+    for y in range(THUMB_H):
+        t = y / (THUMB_H - 1)
+        px[0, y] = (
+            int(top[0] + (bot[0] - top[0]) * t),
+            int(top[1] + (bot[1] - top[1]) * t),
+            int(top[2] + (bot[2] - top[2]) * t),
+        )
+    return col.resize((THUMB_W, THUMB_H))
 
 
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
@@ -243,22 +284,34 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
                      thumbnail_phrase: str = None,
                      thumbnail_font_size: str = None) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    provider = _image_provider()
+    prompt = _build_ai_prompt(title, mood=mood, style=style,
+                              thumbnail_description=thumbnail_description)
 
-    if provider == "huggingface":
-        prompt = _build_ai_prompt(title, mood=mood, style=style,
-                                  thumbnail_description=thumbnail_description)
-        print(f"[FLUX/HF] {prompt[:120]}...", flush=True)
-        img = _fetch_image_hf(prompt)
+    # Catena di fallback: provider configurato -> altri AI -> gradiente locale.
+    # Garantisce che una copertina venga SEMPRE prodotta (mai "non fa niente").
+    providers = {
+        "huggingface": ("FLUX/HF", lambda: _fetch_image_hf(prompt)),
+        "openrouter":  ("FLUX/OR", lambda: _fetch_image_openrouter(prompt)),
+        "pollinations": ("POLLINATIONS",
+                         lambda: _fetch_image_pollinations(title, mood=mood, style=style)),
+    }
+    order = [_image_provider()] + [p for p in providers if p != _image_provider()]
 
-    elif provider == "openrouter":
-        prompt = _build_ai_prompt(title, mood=mood, style=style,
-                                  thumbnail_description=thumbnail_description)
-        print(f"[FLUX/OR] {prompt[:120]}...", flush=True)
-        img = _fetch_image_openrouter(prompt)
+    img = None
+    for name in order:
+        if name not in providers:
+            continue
+        label, fetch = providers[name]
+        try:
+            print(f"[{label}] {prompt[:100]}...", flush=True)
+            img = fetch()
+            break
+        except Exception as e:
+            print(f"[{label}] fallito: {e}", flush=True)
 
-    else:
-        img = _fetch_image_pollinations(title, mood=mood, style=style)
+    if img is None:
+        print("[THUMBNAIL] tutti i provider AI falliti — uso gradiente locale", flush=True)
+        img = _fetch_image_placeholder(title, mood=mood)
 
     try:
         from moduli.preferenze import carica as _carica_pref

@@ -388,11 +388,30 @@ def _test_hf_key(key: str) -> tuple[bool, str]:
         )
         if r.status_code == 401:
             return False, "Token non riconosciuto. Vai su huggingface.co/settings/tokens e copia un token valido."
-        if r.status_code in (200, 403):
-            return True, ""  # 403 = token ok ma accesso limitato, comunque valido
-        return False, f"Errore inatteso ({r.status_code}). Riprova tra qualche minuto."
+        if r.status_code not in (200, 403):
+            return False, f"Errore inatteso ({r.status_code}). Riprova tra qualche minuto."
     except Exception as e:
         return False, f"Impossibile contattare HuggingFace: {str(e)[:80]}"
+
+    # Auth ok: prova una generazione FLUX vera. whoami non basta — il provider
+    # di inference (nscale) puo' restituire 401/402 anche con token valido.
+    try:
+        from huggingface_hub import InferenceClient
+        InferenceClient(token=key).text_to_image(
+            "test", model="black-forest-labs/FLUX.1-schnell", width=256, height=256,
+        )
+        return True, ""
+    except Exception as e:
+        msg = str(e)
+        if "401" in msg or "403" in msg:
+            return False, ("Token valido ma niente accesso all'inference FLUX. "
+                           "Accetta i termini su huggingface.co/black-forest-labs/FLUX.1-schnell "
+                           "o abilita l'inference nelle impostazioni del token.")
+        if "402" in msg or "payment" in msg.lower() or "quota" in msg.lower():
+            return False, ("Crediti inference HuggingFace esauriti per questo mese. "
+                           "Aspetta il reset o usa un altro provider.")
+        # rete/timeout: non blocco il setup, il token auth e' ok
+        return True, f"⚠ Token ok ma test FLUX non concluso ({msg[:60]}). Si prova a runtime."
 
 
 def step_image_provider() -> None:
@@ -424,7 +443,10 @@ def step_image_provider() -> None:
             p_.add_task("")
             passed, emsg = _test_hf_key(key)
         if passed:
-            ok("Token HuggingFace verificato — funziona!")
+            if emsg:
+                warn(emsg)
+            else:
+                ok("Token HuggingFace verificato — generazione FLUX funziona!")
         else:
             console.print()
             warn(emsg)
