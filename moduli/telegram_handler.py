@@ -139,7 +139,7 @@ CHANNEL API ACTIONS (execute directly, no confirmation needed):
 MEMORY & PREFERENCES:
 [RICORDA: fact] → save to long-term memory
 [DIMENTICA: text] → remove from memory
-[SETPREF: key=value] → update video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false), thumbnail_testo_colore (color name or R,G,B), thumbnail_testo_posizione (alto/basso), thumbnail_testo_scala (0.3-1.0), tts_voce (Edge TTS voice name). ALWAYS use this tag when the user expresses a preference.
+[SETPREF: key=value] → update video preference. Available keys: ritmo (lento/medio/veloce), tono_voce (confident/casual/dramatic/educational), lingua (english/italian), stile_clip (cinematic/fast cuts/minimal/documentary), stile_thumbnail (free text), argomenti_preferiti (comma-separated list), argomenti_evitare (comma-separated list), durata_target_minuti (number), musica_volume (0.0-1.0), note_libere (free text), thumbnail_testo_mostra (true/false), thumbnail_testo_colore (color name or R,G,B), thumbnail_testo_posizione (alto/basso), thumbnail_testo_scala (0.3-1.0), thumbnail_font_size (A/B/C/D — A largest, empty = auto), tts_voce (Edge TTS voice name). ALWAYS use this tag when the user expresses a preference.
 Examples: "voce italiana" → [SETPREF: tts_voce=it-IT-DiegoNeural] | "voce femminile" → [SETPREF: tts_voce=en-US-AriaNeural] | "voce british" → [SETPREF: tts_voce=en-GB-SoniaNeural] | "video da 5 minuti" → [SETPREF: durata_target_minuti=5]
 
 PUBLISHED VIDEO EDITING (requires confirmation — affects live content):
@@ -418,8 +418,12 @@ def _execute_confirmed_action(state: dict, action: dict) -> str:
     raise ValueError(f"Azione sconosciuta: {action_type}")
 
 
-def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_only: bool = False) -> tuple[str, list, list, list]:
-    """Esegue i tag azione presenti nella risposta AI."""
+def _execute_actions(reply: str, state: dict, is_search: bool = False,
+                     is_pref_only: bool = False) -> tuple[str, list, list, list, list, list]:
+    """Esegue i tag azione presenti nella risposta AI.
+
+    Ritorna (testo_pulito, added_topics, saved_memories, removed_memories,
+    api_results, deferred_tasks)."""
     import re
     from moduli.memoria import aggiungi as mem_aggiungi, _save as mem_save, _load as mem_load
 
@@ -447,14 +451,6 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _forza_ora(m):
         topic = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "FORZA_ORA", topic, f"avvia e pubblica subito: {topic}"))
-        return ""
-        if not queue or queue[0] != topic:
-            queue.insert(0, topic)
-        state["force_run"] = True
-        checkpoint = "output/pipeline_checkpoint.json"
-        if os.path.exists(checkpoint):
-            os.remove(checkpoint)
-        added_topics.append(f"{topic} (⚡ PRIORITÀ — pipeline avviata)")
         return ""
 
     def _ricorda(m):
@@ -485,7 +481,7 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         else:
             pref[chiave] = valore
         salva(pref)
-        api_results.append(f"⚙️ Preferenza aggiornata: <b>{chiave}</b> = <code>{pref[chiave]}</code>")
+        api_results.append(f"⚙️ Preferenza aggiornata: <b>{_h(chiave)}</b> = <code>{_h(pref[chiave])}</code>")
         return ""
 
     def _dimentica(m):
@@ -498,18 +494,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         return ""
 
     def _rinomina_canale(m):
-        from moduli.canale import aggiorna_canale
         nome = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "RINOMINA_CANALE", nome, f"rinomina canale: {nome}"))
-        return ""
-        try:
-            res = aggiorna_canale(title=nome)
-            if "title_error" in res:
-                api_results.append(f"⚠️ {res['title_error']}")
-            else:
-                api_results.append(f"✅ Nome canale cambiato in <b>{nome}</b>")
-        except Exception as e:
-            api_results.append(f"❌ Errore cambio nome: {e}")
         return ""
 
     def _aggiorna_desc(m):
@@ -533,55 +519,18 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         return ""
 
     def _video_titolo(m):
-        from moduli.pubblica import aggiorna_video
         payload = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "VIDEO_TITOLO", payload, "aggiorna titolo video"))
         return ""
-        parts = m.group(1).split("|", 1)
-        if len(parts) != 2:
-            api_results.append("❌ Formato: [VIDEO_TITOLO: video_id | nuovo titolo]")
-            return ""
-        vid, titolo = parts[0].strip(), parts[1].strip()
-        try:
-            aggiorna_video(vid, title=titolo)
-            api_results.append(f'✅ Titolo aggiornato: <a href="https://youtu.be/{vid}">{titolo}</a>')
-        except Exception as e:
-            api_results.append(f"❌ Errore aggiornamento titolo: {e}")
-        return ""
 
     def _video_desc(m):
-        from moduli.pubblica import aggiorna_video
         payload = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "VIDEO_DESC", payload, "aggiorna descrizione video"))
         return ""
-        parts = m.group(1).split("|", 1)
-        if len(parts) != 2:
-            api_results.append("❌ Formato: [VIDEO_DESC: video_id | nuova descrizione]")
-            return ""
-        vid, desc = parts[0].strip(), parts[1].strip()
-        try:
-            aggiorna_video(vid, description=desc)
-            api_results.append(f'✅ Descrizione aggiornata su <a href="https://youtu.be/{vid}">youtu.be/{vid}</a>')
-        except Exception as e:
-            api_results.append(f"❌ Errore aggiornamento descrizione: {e}")
-        return ""
 
     def _video_tags(m):
-        from moduli.pubblica import aggiorna_video
         payload = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "VIDEO_TAGS", payload, "aggiorna tag video"))
-        return ""
-        parts = m.group(1).split("|", 1)
-        if len(parts) != 2:
-            api_results.append("❌ Formato: [VIDEO_TAGS: video_id | tag1, tag2]")
-            return ""
-        vid, tags_raw = parts[0].strip(), parts[1].strip()
-        tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
-        try:
-            aggiorna_video(vid, tags=tags)
-            api_results.append(f'✅ Tag aggiornati su <a href="https://youtu.be/{vid}">youtu.be/{vid}</a>')
-        except Exception as e:
-            api_results.append(f"❌ Errore aggiornamento tag: {e}")
         return ""
 
     def _elimina_topic(m):
@@ -603,19 +552,9 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
     def _riavvia_montaggio(m):
         api_results.append(_queue_pending_action(state, "RIAVVIA_MONTAGGIO", "", "riavvia montaggio"))
         return ""
-        checkpoint = "output/pipeline_checkpoint.json"
-        if os.path.exists(checkpoint):
-            os.remove(checkpoint)
-        state["force_run"] = True
-        api_results.append("🔄 Checkpoint cancellato — pipeline riparte dal montaggio entro 60s.")
-        return ""
 
     def _blocca_pipeline(m):
         api_results.append(_queue_pending_action(state, "BLOCCA_PIPELINE", "", "blocca pipeline"))
-        return ""
-        state["abort_pipeline"] = True
-        state.pop("force_run", None)
-        api_results.append("⛔ Pipeline bloccata. Si fermerà al prossimo step.")
         return ""
 
     def _genera_copertina(m):
@@ -635,22 +574,8 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False, is_pref_o
         return ""
 
     def _video_thumb(m):
-        from moduli.pubblica import aggiorna_video
         vid = m.group(1).strip()
         api_results.append(_queue_pending_action(state, "VIDEO_THUMB", vid, f"aggiorna thumbnail video {vid}"))
-        return ""
-        thumb = "output/thumbnail.jpg"
-        if not os.path.exists(thumb):
-            api_results.append("❌ Thumbnail non trovata in output/thumbnail.jpg")
-            return ""
-        try:
-            res = aggiorna_video(vid, thumbnail_path=thumb)
-            if res.get("thumbnail_error"):
-                api_results.append(f"❌ Thumbnail: {res['thumbnail_error']}")
-            else:
-                api_results.append(f'✅ Thumbnail caricata su <a href="https://youtu.be/{vid}">youtu.be/{vid}</a>')
-        except Exception as e:
-            api_results.append(f"❌ Errore thumbnail: {e}")
         return ""
 
     clean = re.sub(r'\[GENERA_COPERTINA:\s*([^\]]+)\]', _genera_copertina, reply)
@@ -771,7 +696,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if last_video:
         msg += f"🔗 Ultimo: https://youtu.be/{last_video}\n"
     if recent:
-        msg += f"\n<b>Ultimi topic:</b>\n" + "\n".join(f"• {t}" for t in recent[:5])
+        msg += f"\n<b>Ultimi topic:</b>\n" + "\n".join(f"• {_h(t)}" for t in recent[:5])
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
@@ -799,7 +724,7 @@ async def cmd_setpref(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     except ValueError:
         await update.message.reply_text(f"Valore non valido per {chiave}.")
         return
-    await update.message.reply_text(f"✅ <b>{chiave}</b> aggiornato: <code>{pref[chiave]}</code>", parse_mode="HTML")
+    await update.message.reply_text(f"✅ <b>{_h(chiave)}</b> aggiornato: <code>{_h(pref[chiave])}</code>", parse_mode="HTML")
 
 
 async def cmd_recap(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -815,7 +740,7 @@ async def cmd_recap(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         for v in videos:
             retention = int(v.get("avg_view_duration_seconds", 0) / max(v.get("duration_seconds", 480), 1) * 100)
             lines.append(
-                f"▪️ <b>{v['title'][:50]}</b>\n"
+                f"▪️ <b>{_h(v['title'][:50])}</b>\n"
                 f"   👁 {v['views']} views · 👀 {v.get('impressions', 0)} impr · 📈 CTR {v.get('ctr_percent', 0)}%\n"
                 f"   ❤️ {v['likes']} · 💬 {v['comments']} · ⏱ {retention}% retention · ⏰ {int(v.get('avg_view_duration_seconds', 0))}s avg"
             )
@@ -882,7 +807,7 @@ async def cmd_coda(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not queue:
         await update.message.reply_text("📋 Coda vuota — il prossimo topic sarà generato automaticamente.")
     else:
-        msg = "📋 <b>Topic in coda:</b>\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(queue))
+        msg = "📋 <b>Topic in coda:</b>\n" + "\n".join(f"{i+1}. {_h(t)}" for i, t in enumerate(queue))
         await update.message.reply_text(msg, parse_mode="HTML")
 
 
@@ -900,7 +825,7 @@ async def cmd_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(
         f"✅ <b>Topic aggiunto in coda</b>\n\n"
-        f"📌 <i>{text}</i>\n\n"
+        f"📌 <i>{_h(text)}</i>\n\n"
         f"Posizione {len(queue)} in coda.",
         parse_mode="HTML"
     )
@@ -966,8 +891,11 @@ async def cmd_orari(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         datetime.now(timezone.utc).strftime("%Y-%m-%d"), 0
     )
 
-    trigger_str = "\n".join(f"  {i+1}. Pipeline alle {h:02d}:00 UTC → pubblica alle {publish[i] if i < len(publish) else '?'}:00 UTC"
-                            for i, h in enumerate(trigger))
+    trigger_str = "\n".join(
+        f"  {i+1}. Pipeline alle {h:02d}:00 UTC → pubblica alle "
+        f"{f'{publish[i]:02d}' if i < len(publish) else '?'}:00 UTC"
+        for i, h in enumerate(trigger)
+    )
     await update.message.reply_text(
         f"📅 <b>Programma attuale</b>\n\n"
         f"📹 Video al giorno: {vpd}\n"
@@ -1060,7 +988,7 @@ async def cmd_deltopic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     _save_state(state)
 
     await update.message.reply_text(
-        f"🗑 <b>Topic rimosso:</b>\n<i>{rimosso}</i>\n\n"
+        f"🗑 <b>Topic rimosso:</b>\n<i>{_h(rimosso)}</i>\n\n"
         f"Topic rimanenti in coda: {len(queue)}",
         parse_mode="HTML"
     )
@@ -1085,7 +1013,7 @@ async def cmd_memoria(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not memories:
         await update.message.reply_text("🧠 Memoria vuota.")
         return
-    righe = "\n".join(f"{i+1}. {m['testo']} <i>({m['data']})</i>" for i, m in enumerate(memories))
+    righe = "\n".join(f"{i+1}. {_h(m['testo'])} <i>({_h(m['data'])})</i>" for i, m in enumerate(memories))
     await update.message.reply_text(f"🧠 <b>Memoria lungo termine:</b>\n\n{righe}", parse_mode="HTML")
 
 
@@ -1168,13 +1096,13 @@ async def cmd_canale(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         info = await loop.run_in_executor(None, _run_canale, "info_canale")
         msg = (
-            f"📺 <b>{info['title']}</b>\n\n"
+            f"📺 <b>{_h(info['title'])}</b>\n\n"
             f"👥 Iscritti: {info['subscribers']:,}\n"
             f"👁 Visualizzazioni: {info['views']:,}\n"
             f"📹 Video: {info['video_count']}\n"
-            f"🌍 Paese: {info['country']}\n\n"
-            f"📝 <b>Descrizione:</b>\n{info['description'][:300] or '—'}\n\n"
-            f"🔑 <b>Keyword:</b> {info['keywords'][:200] or '—'}"
+            f"🌍 Paese: {_h(info['country'])}\n\n"
+            f"📝 <b>Descrizione:</b>\n{_h(info['description'][:300]) or '—'}\n\n"
+            f"🔑 <b>Keyword:</b> {_h(info['keywords'][:200]) or '—'}"
         )
     except Exception as e:
         msg = f"❌ Errore: {e}"
@@ -1204,7 +1132,7 @@ async def cmd_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         lines = [f"📹 <b>Ultimi video:</b>"]
         for v in videos:
-            lines.append(f"▪️ <a href='https://youtu.be/{v['video_id']}'>{v['title'][:50]}</a> — {v['published']}")
+            lines.append(f"▪️ <a href='https://youtu.be/{v['video_id']}'>{_h(v['title'][:50])}</a> — {v['published']}")
         await update.message.reply_text("\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         await update.message.reply_text(f"❌ Errore: {e}")
@@ -1220,7 +1148,7 @@ async def cmd_playlist(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         lines = ["📋 <b>Playlist:</b>"]
         for p in playlists:
-            lines.append(f"▪️ {p['title']} ({p['count']} video) — <code>{p['id']}</code>")
+            lines.append(f"▪️ {_h(p['title'])} ({p['count']} video) — <code>{p['id']}</code>")
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ Errore: {e}")
@@ -1252,7 +1180,7 @@ async def cmd_commenti(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
         lines = [f"💬 <b>Commenti:</b>"]
         for c in commenti:
-            lines.append(f"<b>{c['author']}</b> (❤️{c['likes']})\n{c['text'][:150]}\n<code>{c['id']}</code>")
+            lines.append(f"<b>{_h(c['author'])}</b> (❤️{c['likes']})\n{_h(c['text'][:150])}\n<code>{c['id']}</code>")
         await update.message.reply_text("\n\n".join(lines), parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ Errore: {e}")
@@ -1362,6 +1290,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
 
     reply, new_history = await future
 
+    # Ricarica lo state: l'AI può aver impiegato 30-60s e nel frattempo la
+    # pipeline o altri comandi possono aver scritto — evita lost-update.
+    state = _load_state()
+
     # esegui azioni embedded nella risposta
     clean_reply, added_topics, saved_memories, removed_memories, api_results, deferred_tasks = _execute_actions(
         reply, state,
@@ -1395,19 +1327,19 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text(labels.get(tt, "⏳ Eseguo…"))
 
     if added_topics:
-        elenco = "\n".join(f"• {t}" for t in added_topics)
+        elenco = "\n".join(f"• {_h(t)}" for t in added_topics)
         await update.message.reply_text(
             f"✅ <b>Aggiunti {len(added_topics)} topic in coda:</b>\n{elenco}",
             parse_mode="HTML"
         )
     if saved_memories:
-        elenco = "\n".join(f"• {m}" for m in saved_memories)
+        elenco = "\n".join(f"• {_h(m)}" for m in saved_memories)
         await update.message.reply_text(
             f"🧠 <b>Memorizzato:</b>\n{elenco}",
             parse_mode="HTML"
         )
     if removed_memories:
-        elenco = "\n".join(f"• {m}" for m in removed_memories)
+        elenco = "\n".join(f"• {_h(m)}" for m in removed_memories)
         await update.message.reply_text(
             f"🗑 <b>Rimosso dalla memoria:</b>\n{elenco}",
             parse_mode="HTML"
@@ -1488,11 +1420,13 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
                 await update.message.reply_text("❌ Nessun video trovato in output/output_finale.mp4 — avvia la pipeline prima.")
 
 
-def start_bot() -> None:
+def start_bot() -> threading.Thread | None:
+    """Avvia il bot in un thread daemon. Ritorna il thread (None senza token)
+    così il chiamante può fare watchdog con is_alive()."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         print("[Telegram] No token — bot disabled")
-        return
+        return None
 
     async def _run():
         app = (
@@ -1638,3 +1572,4 @@ def start_bot() -> None:
 
     t = threading.Thread(target=_thread, daemon=True)
     t.start()
+    return t

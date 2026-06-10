@@ -15,7 +15,7 @@ def main():
 
     wizard_path = root_wizard if root_wizard.exists() else bundled
     if not wizard_path.exists():
-        print("[!] Setup wizard not found. Run: youtube-ai-agent onboard")
+        print("[!] Setup wizard not found. Run: tube-assistant onboard")
         sys.exit(1)
 
     spec = importlib.util.spec_from_file_location("_setup_wizard", wizard_path)

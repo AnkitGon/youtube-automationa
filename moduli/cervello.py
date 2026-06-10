@@ -27,10 +27,12 @@ Strategy guidance:
 - Notes: {strategy_notes}
 
 Target duration: {target_minutes} minutes = ~{target_words} words
+Language: write title, description, tags and script entirely in {language}.
 
 Reply ONLY with valid JSON, exact structure:
 {{
   "title": "Compelling title, max 70 chars",
+  "mood": "ONE word matching the video's emotional tone: epic | chill | mysterious | upbeat | tense",
   "thumbnail_phrase": "2-3 words MAX, ALL CAPS, bold visual hook for the thumbnail — never more than 3 words, never cut off",
   "thumbnail_font_size": "ONE letter: A (very large, best for 2 words), B (large, 2 words), C (medium, 2-3 words, default), D (smaller, 3 words)",
   "description": "SEO-optimized description, 200-300 words, include keywords naturally",
@@ -46,6 +48,7 @@ Reply ONLY with valid JSON, exact structure:
 
 Rules:
 - title: follow the title_style guidance above
+- mood: exactly one of epic, chill, mysterious, upbeat, tense — drives background music and thumbnail style
 - thumbnail_phrase: EXACTLY 2-3 words, ALL CAPS, bold hook — never more than 3 words
 - thumbnail_font_size: A if 2 short words, B if 2 longer words, C if 3 words (default), D if 3 long words
 - tags: 12-15 relevant tags
@@ -93,16 +96,20 @@ def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
         recent_topics=", ".join(recent_topics or []) or "none",
         trending_block=trending,
     )
-    return chat_ollama(prompt, max_tokens=64).strip()
+    topic = chat_ollama(prompt, max_tokens=64).strip()
+    # il modello a volte avvolge il topic in virgolette nonostante il prompt
+    return topic.strip('"“”‘’\' ')
 
 
 def genera_contenuto(topic: str, strategy: dict = None) -> dict:
     strategy = strategy or {}
     try:
         from moduli.preferenze import carica
-        target_minutes = carica().get("durata_target_minuti", 8)
+        pref = carica()
     except Exception:
-        target_minutes = 8
+        pref = {}
+    target_minutes = pref.get("durata_target_minuti", 8)
+    language = pref.get("lingua", "english") or "english"
     target_words = int(target_minutes * 130)  # ~130 parole/min a velocità TTS normale
     prompt = CONTENT_PROMPT.format(
         current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
@@ -113,5 +120,23 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
         strategy_notes=strategy.get("notes", "Standard approach"),
         target_minutes=target_minutes,
         target_words=target_words,
+        language=language,
     )
-    return _parse_json(chat_ollama(prompt, max_tokens=8192))
+    # uno script troppo corto produce un video di pochi secondi: meglio
+    # ritentare una volta e poi fallire con un errore chiaro che pubblicarlo
+    min_words = max(150, int(target_words * 0.5))
+    last_err = None
+    for attempt in range(2):
+        try:
+            content = _parse_json(chat_ollama(prompt, max_tokens=8192))
+            words = len(content.get("script", "").split())
+            if words < min_words:
+                raise ValueError(
+                    f"Script troppo corto: {words} parole, minimo {min_words} "
+                    f"per un video da ~{target_minutes} minuti"
+                )
+            return content
+        except ValueError as e:
+            last_err = e
+            print(f"[cervello] Contenuto non valido (tentativo {attempt + 1}/2): {e}", flush=True)
+    raise last_err

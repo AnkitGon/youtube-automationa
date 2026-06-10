@@ -19,6 +19,7 @@ AI_KEY_BY_SERVICE = {
     "together": "TOGETHER_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
     "fireworks": "FIREWORKS_API_KEY",
+    "azure_openai": "AZURE_OPENAI_API_KEY",
     "ollama_cloud": "OLLAMA_API_KEY",
 }
 

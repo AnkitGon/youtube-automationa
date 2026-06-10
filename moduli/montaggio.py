@@ -134,6 +134,16 @@ BG_MUSIC_VOLUME = 0.1
 ALLOWED_MOODS = {"epic", "chill", "mysterious", "upbeat", "tense"}
 
 
+def _bg_volume() -> float:
+    """Volume musica di sottofondo dalla preferenza utente `musica_volume`."""
+    try:
+        from moduli.preferenze import carica
+        vol = float(carica().get("musica_volume", BG_MUSIC_VOLUME))
+        return max(0.0, min(1.0, vol))
+    except Exception:
+        return BG_MUSIC_VOLUME
+
+
 def _pick_music(mood: str | None) -> str | None:
     if mood and mood.lower() in ALLOWED_MOODS:
         tracks = glob.glob(os.path.join(BG_MUSIC_DIR, mood.lower(), "*.mp3"))
@@ -344,7 +354,7 @@ def _mux_audio_ffmpeg(video_path: str, audio_path: str, output_path: str, music_
             "-i", audio_path,
             "-stream_loop", "-1", "-i", music_path,
             "-filter_complex",
-            f"[1:a]volume=1.0[a0];[2:a]volume={BG_MUSIC_VOLUME},atrim=0:{duration:.3f}[a1];"
+            f"[1:a]volume=1.0[a0];[2:a]volume={_bg_volume()},atrim=0:{duration:.3f}[a1];"
             "[a0][a1]amix=inputs=2:duration=first:dropout_transition=0[a]",
             "-map", "0:v:0",
             "-map", "[a]",
@@ -510,7 +520,7 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
     music_path = custom_music if custom_music and os.path.exists(custom_music) else _pick_music(mood)
     if music_path:
         print(f"[montaggio] BG music: {music_path} (mood={mood})", flush=True)
-        bg = AudioFileClip(music_path).with_volume_scaled(BG_MUSIC_VOLUME)
+        bg = AudioFileClip(music_path).with_volume_scaled(_bg_volume())
         if bg.duration < total_duration:
             loops = int(total_duration / bg.duration) + 1
             bg = concatenate_audioclips([bg] * loops)

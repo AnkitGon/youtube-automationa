@@ -280,10 +280,22 @@ def _primary(messages: list, max_tokens: int = 8192) -> str:
 
 
 def _fallback(messages: list, max_tokens: int = 4096) -> str:
+    """Prova i provider di riserva in base alle chiavi realmente disponibili."""
     svc = os.environ.get("AI_SERVICE", AI_SERVICE)
-    if svc == "openrouter":
-        return _ollama_local(messages, max_tokens)
-    return _openrouter(messages, min(max_tokens, 4096))
+    candidates = []
+    if svc != "openrouter" and os.environ.get("OPENROUTER_API_KEY", "").strip():
+        candidates.append(("openrouter", _openrouter))
+    if svc != "ollama_local":
+        # nessuna chiave richiesta: vale sempre la pena tentare l'istanza locale
+        candidates.append(("ollama_local", _ollama_local))
+    last_err: Exception | None = None
+    for name, fn in candidates:
+        try:
+            return fn(messages, min(max_tokens, 4096))
+        except Exception as e:
+            print(f"[AI] Fallback {name} fallito: {e}", flush=True)
+            last_err = e
+    raise RuntimeError(f"Tutti i provider AI di fallback hanno fallito: {last_err}")
 
 
 # ── public API ────────────────────────────────────────────────────────────────
@@ -293,7 +305,12 @@ def chat(prompt: str, system: str = None, max_tokens: int = 8192) -> str:
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    return _primary(messages, max_tokens)
+    try:
+        return _primary(messages, max_tokens)
+    except Exception as e:
+        # provider primario giù non deve far perdere il video del giorno
+        print(f"[AI] Primary failed ({e}), trying fallback...", flush=True)
+        return _fallback(messages, max_tokens)
 
 
 def chat_ollama(prompt: str, system: str = None, max_tokens: int = 8192) -> str:

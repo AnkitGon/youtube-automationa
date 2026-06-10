@@ -61,12 +61,14 @@ def run():
     pulisci_temp_render("output")
     assicura_spazio(work_dir="output")
     print(f"  Disk free: {spazio_libero_gb('output'):.1f} GB")
-    monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH, mood=content.get("mood"))
+    monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH,
+                mood=content.get("mood"), captions_text=content.get("script"))
     print(f"  Saved: {VIDEO_PATH}")
 
     print("\n=== [E] Generating thumbnail ===")
     genera_thumbnail(
         content["title"], THUMB_PATH,
+        mood=content.get("mood"),
         thumbnail_description=content.get("thumbnail_description"),
         thumbnail_phrase=content.get("thumbnail_phrase"),
         thumbnail_font_size=content.get("thumbnail_font_size"),

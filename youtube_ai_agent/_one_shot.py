@@ -56,12 +56,14 @@ def run(dry_run: bool = False):
         sys.exit(1)
 
     print("\n=== [D] Rendering video ===")
-    monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH, mood=content.get("mood"))
+    monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH,
+                mood=content.get("mood"), captions_text=content.get("script"))
     print(f"  Saved: {VIDEO_PATH}")
 
     print("\n=== [E] Generating thumbnail ===")
     genera_thumbnail(
         content["title"], THUMB_PATH,
+        mood=content.get("mood"),
         thumbnail_description=content.get("thumbnail_description"),
         thumbnail_phrase=content.get("thumbnail_phrase"),
         thumbnail_font_size=content.get("thumbnail_font_size"),

@@ -21,6 +21,7 @@ DEFAULT_PREF = {
     "thumbnail_testo_colore": "255,255,255", # R,G,B oppure nome (bianco/rosso/giallo...)
     "thumbnail_testo_posizione": "basso",    # alto / basso
     "thumbnail_testo_scala": 1.0,            # grandezza testo: 0.3-1.0 (1.0 = massimo leggibile)
+    "thumbnail_font_size": "",               # preset A/B/C/D — vuoto = decide l'LLM
     "tts_voce": "en-US-GuyNeural",          # voce Edge TTS (es. it-IT-DiegoNeural)
 }
 

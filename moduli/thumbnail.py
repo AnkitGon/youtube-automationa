@@ -224,7 +224,7 @@ def _draw_title(img: Image.Image, title: str,
 
     max_text_w = int(THUMB_W * 0.90)
     max_text_h = int(THUMB_H * 0.55)  # più alto = più righe disponibili, mai tagliato
-    max_start = _FONT_PRESETS.get((font_size_preset or "C").upper(), 80)
+    max_start = _FONT_PRESETS.get((font_size_preset or "C").strip().upper(), _FONT_PRESETS["C"])
     font, lines, font_size = _fit_title(title, max_text_w, max_text_h, max_start=max_start)
 
     # scala manuale opzionale (0.3-1.0)
@@ -284,6 +284,15 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
                      thumbnail_phrase: str = None,
                      thumbnail_font_size: str = None) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    try:
+        from moduli.preferenze import carica as _carica_pref
+        _pref = _carica_pref()
+    except Exception:
+        _pref = {}
+    # la preferenza utente `stile_thumbnail` guida lo stile quando il chiamante
+    # non ne passa uno esplicito
+    if not style:
+        style = _pref.get("stile_thumbnail") or None
     prompt = _build_ai_prompt(title, mood=mood, style=style,
                               thumbnail_description=thumbnail_description)
 
@@ -313,11 +322,6 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
         print("[THUMBNAIL] tutti i provider AI falliti — uso gradiente locale", flush=True)
         img = _fetch_image_placeholder(title, mood=mood)
 
-    try:
-        from moduli.preferenze import carica as _carica_pref
-        _pref = _carica_pref()
-    except Exception:
-        _pref = {}
     if _pref.get("thumbnail_testo_mostra", True):
         _color = _parse_color(_pref.get("thumbnail_testo_colore", "255,255,255"))
         _pos = _pref.get("thumbnail_testo_posizione", "basso")

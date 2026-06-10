@@ -9,12 +9,18 @@ Supports:
 - Force run and skip via Telegram
 """
 
+import html
 import os
 import json
 import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
+
+
+def _h(value) -> str:
+    """Escape per i messaggi Telegram con parse_mode=HTML."""
+    return html.escape(str(value), quote=True)
 
 load_dotenv()
 
@@ -45,6 +51,7 @@ def _check_env() -> None:
         "together":     "TOGETHER_API_KEY",
         "perplexity":   "PERPLEXITY_API_KEY",
         "fireworks":    "FIREWORKS_API_KEY",
+        "azure_openai": "AZURE_OPENAI_API_KEY",
         "ollama_cloud": "OLLAMA_API_KEY",
     }
     if service in service_keys:
@@ -82,10 +89,13 @@ from moduli.state_io import load_state as _load_state, save_state as _save_state
 AUDIO_PATH = "output/narration.mp3"
 VIDEO_PATH = "output/output_finale.mp4"
 THUMB_PATH = "output/thumbnail.jpg"
+CHECKPOINT_PATH = "output/pipeline_checkpoint.json"
 PID_FILE   = ".agent.pid"
 
 DEFAULT_VIDEOS_PER_DAY = 1
 DEFAULT_TRIGGER_HOURS = [14]
+# la produzione parte 3 ore prima dell'orario di pubblicazione
+TRIGGER_LEAD_HOURS = 3
 
 _pipeline_step = "init"
 
@@ -102,10 +112,13 @@ def _acquire_pid_lock() -> None:
             print(f"  kill {old_pid}")
             print(f"  oppure: pkill -f tube-assistant\n")
             sys.exit(1)
-        except (ValueError, ProcessLookupError, PermissionError):
+        except PermissionError:
+            # il processo esiste ma non abbiamo i permessi per segnalarlo:
+            # è comunque in esecuzione → non avviare una seconda istanza
+            print(f"\n[ERRORE] Agent già in esecuzione (PID {old_pid}).")
+            sys.exit(1)
+        except (ValueError, ProcessLookupError, OSError):
             # PID non esiste più oppure file corrotto → rimuovi il file stale
-            os.remove(PID_FILE)
-        except OSError:
             os.remove(PID_FILE)
 
     with open(PID_FILE, "w") as f:
@@ -144,24 +157,35 @@ def _increment_runs_today(state: dict) -> None:
 
 
 def _get_trigger_hours(state: dict) -> list[int]:
-    """Return sorted list of hours when pipeline should run today."""
-    if state.get("auto_scheduling") and state.get("best_hours_utc"):
-        hours = state["best_hours_utc"]
+    """Return sorted list of hours when pipeline should run today.
+
+    Priorità: trigger espliciti > orari di pubblicazione (auto o manuali,
+    produzione TRIGGER_LEAD_HOURS prima) > default.
+    """
+    if state.get("trigger_hours_utc"):
+        hours = state["trigger_hours_utc"]
+    elif state.get("auto_scheduling") and state.get("best_hours_utc"):
+        hours = [(h - TRIGGER_LEAD_HOURS) % 24 for h in state["best_hours_utc"]]
+    elif state.get("publish_hours_utc"):
+        hours = [(h - TRIGGER_LEAD_HOURS) % 24 for h in state["publish_hours_utc"]]
     else:
-        hours = state.get("trigger_hours_utc", DEFAULT_TRIGGER_HOURS)
+        hours = DEFAULT_TRIGGER_HOURS
     n = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
     # use only the first N hours
     return sorted(hours)[:n]
 
 
-def _should_run(state: dict, now: datetime) -> bool:
+def _should_run(state: dict, now: datetime, last_attempt: tuple | None = None) -> bool:
     if state.get("force_run"):
         return True
     videos_per_day = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
     if _runs_today(state) >= videos_per_day:
         return False
     trigger_hours = _get_trigger_hours(state)
-    return now.hour in trigger_hours and now.minute == 0
+    # finestra = tutta l'ora (non solo minute==0): un tick saltato per drift
+    # del loop non fa perdere il video. last_attempt evita doppi trigger.
+    key = (now.strftime("%Y-%m-%d"), now.hour)
+    return now.hour in trigger_hours and key != last_attempt
 
 
 def _log(msg: str) -> None:
@@ -169,6 +193,73 @@ def _log(msg: str) -> None:
     line = f"[{ts}] {msg}"
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     print(line.encode(encoding, errors="replace").decode(encoding), flush=True)
+
+
+# ── checkpoint: riprende la pipeline dal punto del crash invece di rifare tutto ─
+
+def _load_checkpoint() -> dict:
+    """Checkpoint valido solo se creato oggi — altrimenti si riparte da zero."""
+    try:
+        with open(CHECKPOINT_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if data.get("date") != today or not isinstance(data.get("steps"), list):
+        return {}
+    return data
+
+
+def _save_checkpoint(cp: dict) -> None:
+    cp["date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        tmp = CHECKPOINT_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cp, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, CHECKPOINT_PATH)
+    except OSError as e:
+        _log(f"  ! Checkpoint non salvato: {e}")
+
+
+def _clear_checkpoint() -> None:
+    try:
+        os.remove(CHECKPOINT_PATH)
+    except OSError:
+        pass
+
+
+def _scarica_tutte_le_clips(keywords: list) -> dict:
+    """Scarica abbastanza clip distinte da coprire tutti i segmenti del video."""
+    clip_paths = {}
+    # quante clip distinte servono per non ripeterne nessuna nel video
+    try:
+        from moduli.montaggio import _media_duration, SEGMENT_DURATION
+        _dur = _media_duration(AUDIO_PATH)
+        target_clips = int(_dur / SEGMENT_DURATION) + 1
+    except Exception:
+        target_clips = max(len(keywords), 20)
+    # quante clip scaricare per keyword per coprire i segmenti (max 5 = limite Pexels per_page utile)
+    per_kw = max(1, min(5, -(-target_clips // max(1, len(keywords)))))
+    _log(f"  → Servono ~{target_clips} clip distinte → {per_kw} per keyword")
+
+    seen = set()
+    for i, kw in enumerate(keywords):
+        _log(f"  → [{i+1}/{len(keywords)}] Cerco: {kw} (x{per_kw})")
+        try:
+            paths = scarica_clips(kw, max_n=per_kw)
+            nuove = 0
+            for p in paths:
+                if p in seen:
+                    continue
+                seen.add(p)
+                clip_paths[f"{kw}#{nuove}"] = p
+                nuove += 1
+            _log(f"     ✓ {nuove} clip distinte")
+        except Exception as e:
+            _log(f"     ✗ Saltata: {e}")
+
+    _log(f"  → {len(clip_paths)} clip distinte scaricate (target {target_clips})")
+    return clip_paths
 
 
 def run_pipeline(state: dict, dry_run: bool = False) -> None:
@@ -202,19 +293,37 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # ── TOPIC & CONTENUTO ───────────────────────────────────────────────────
     _pipeline_step = "contenuto"
     _log("🧠 [2/7] Topic & Contenuto — generazione script...")
-    queue = state.get("topic_queue", [])
-    if queue:
-        topic = queue.pop(0)
-        state["topic_queue"] = queue
-        _log(f"  → Topic dalla coda: {topic}")
+    cp = _load_checkpoint()
+    if "content" in cp.get("steps", []) and cp.get("content"):
+        topic = cp.get("topic", "")
+        content = cp["content"]
+        _log(f"  → Ripreso da checkpoint: {topic}")
     else:
-        _log("  → Coda vuota, genero topic con AI...")
-        topic = genera_topic(strategy=strategy, recent_topics=state.get("recent_topics", []))
-        _log(f"  → Topic generato: {topic}")
+        cp = {"steps": []}
+        queue = state.get("topic_queue", [])
+        if queue:
+            topic = queue.pop(0)
+            state["topic_queue"] = queue
+            # persisti subito la rimozione dalla coda (ricaricando lo state più
+            # recente: il bot può aver scritto nel frattempo) — altrimenti lo
+            # stesso topic verrebbe riprodotto a ogni run.
+            fresh = _load_state()
+            fresh_queue = fresh.get("topic_queue", [])
+            if topic in fresh_queue:
+                fresh_queue.remove(topic)
+                fresh["topic_queue"] = fresh_queue
+                _save_state(fresh)
+            _log(f"  → Topic dalla coda: {topic}")
+        else:
+            _log("  → Coda vuota, genero topic con AI...")
+            topic = genera_topic(strategy=strategy, recent_topics=state.get("recent_topics", []))
+            _log(f"  → Topic generato: {topic}")
 
-    notify_start(topic)
-    _log("  → Generazione script in corso (può richiedere 30-60s)...")
-    content = genera_contenuto(topic, strategy=strategy)
+        notify_start(topic)
+        _log("  → Generazione script in corso (può richiedere 30-60s)...")
+        content = genera_contenuto(topic, strategy=strategy)
+        cp.update({"topic": topic, "content": content, "steps": ["content"]})
+        _save_checkpoint(cp)
     _log(f"  → Titolo: {content['title']}")
     _log(f"  → Tag: {', '.join(content.get('tags', [])[:5])}...")
     _log(f"  → Keyword video: {', '.join(content.get('video_keywords', [])[:4])}...")
@@ -225,8 +334,13 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # ── AUDIO ───────────────────────────────────────────────────────────────
     _pipeline_step = "audio"
     _log("🎙️ [3/7] Audio — sintesi vocale con Edge TTS...")
-    notify_step("audio", f"Sintetizzo audio: <i>{content['title']}</i>")
-    genera_audio(content["script"], AUDIO_PATH)
+    if "audio" in cp["steps"] and os.path.exists(AUDIO_PATH):
+        _log(f"  → Ripreso da checkpoint: {AUDIO_PATH}")
+    else:
+        notify_step("audio", f"Sintetizzo audio: <i>{_h(content['title'])}</i>")
+        genera_audio(content["script"], AUDIO_PATH)
+        cp["steps"].append("audio")
+        _save_checkpoint(cp)
     size = os.path.getsize(AUDIO_PATH) // 1024
     _check_abort()
     _log(f"  → Audio salvato: {AUDIO_PATH} ({size} KB)")
@@ -234,38 +348,21 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # ── CLIP ────────────────────────────────────────────────────────────────
     _pipeline_step = "clips"
     _log("🎞️ [4/7] Clip — scarico video da Pexels...")
-    notify_step("clips", "Scarico clip video da Pexels...")
-    clip_paths = {}
     keywords = content.get("video_keywords", [])
+    clip_paths = {}
+    if "clips" in cp["steps"] and cp.get("clip_paths"):
+        cached = {k: p for k, p in cp["clip_paths"].items() if os.path.exists(p)}
+        if cached:
+            clip_paths = cached
+            _log(f"  → Ripreso da checkpoint: {len(clip_paths)} clip")
+    if not clip_paths:
+        notify_step("clips", "Scarico clip video da Pexels...")
+        clip_paths = _scarica_tutte_le_clips(keywords)
+        cp["clip_paths"] = clip_paths
+        if "clips" not in cp["steps"]:
+            cp["steps"].append("clips")
+        _save_checkpoint(cp)
 
-    # quante clip distinte servono per non ripeterne nessuna nel video
-    try:
-        from moduli.montaggio import _media_duration, SEGMENT_DURATION
-        _dur = _media_duration(AUDIO_PATH)
-        target_clips = int(_dur / SEGMENT_DURATION) + 1
-    except Exception:
-        target_clips = max(len(keywords), 20)
-    # quante clip scaricare per keyword per coprire i segmenti (max 5 = limite Pexels per_page utile)
-    per_kw = max(1, min(5, -(-target_clips // max(1, len(keywords)))))
-    _log(f"  → Servono ~{target_clips} clip distinte → {per_kw} per keyword")
-
-    seen = set()
-    for i, kw in enumerate(keywords):
-        _log(f"  → [{i+1}/{len(keywords)}] Cerco: {kw} (x{per_kw})")
-        try:
-            paths = scarica_clips(kw, max_n=per_kw)
-            nuove = 0
-            for p in paths:
-                if p in seen:
-                    continue
-                seen.add(p)
-                clip_paths[f"{kw}#{nuove}"] = p
-                nuove += 1
-            _log(f"     ✓ {nuove} clip distinte")
-        except Exception as e:
-            _log(f"     ✗ Saltata: {e}")
-
-    _log(f"  → {len(clip_paths)} clip distinte scaricate (target {target_clips})")
     liberati = pulisci_cache()
     if liberati:
         _log(f"  → Cache potata: {liberati:.0f} MB liberati (tetto {os.environ.get('MAX_CACHE_MB', '2000')} MB)")
@@ -290,8 +387,17 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         notify_error(str(e))
         raise
     _log(f"  → Spazio disco: {spazio_libero_gb('output'):.1f} GB liberi")
-    notify_step("rendering", "Montaggio in corso (5-15 min)...")
-    monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH)
+    if "montage" in cp["steps"] and os.path.exists(VIDEO_PATH):
+        _log(f"  → Ripreso da checkpoint: {VIDEO_PATH}")
+    else:
+        notify_step("rendering", "Montaggio in corso (5-15 min)...")
+        monta_video(
+            AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH,
+            mood=content.get("mood"),
+            captions_text=content.get("script"),
+        )
+        cp["steps"].append("montage")
+        _save_checkpoint(cp)
     _check_abort()
     size = os.path.getsize(VIDEO_PATH) // (1024 * 1024)
     _log(f"  → Video salvato: {VIDEO_PATH} ({size} MB)")
@@ -299,13 +405,19 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # ── THUMBNAIL ───────────────────────────────────────────────────────────
     _pipeline_step = "thumbnail"
     _log("🖼️ [6/7] Thumbnail — generazione con AI...")
-    notify_step("thumbnail", "Genero la thumbnail con AI...")
-    genera_thumbnail(
-        content["title"], THUMB_PATH,
-        thumbnail_description=content.get("thumbnail_description"),
-        thumbnail_phrase=content.get("thumbnail_phrase"),
-        thumbnail_font_size=content.get("thumbnail_font_size"),
-    )
+    if "thumbnail" in cp["steps"] and os.path.exists(THUMB_PATH):
+        _log(f"  → Ripresa da checkpoint: {THUMB_PATH}")
+    else:
+        notify_step("thumbnail", "Genero la thumbnail con AI...")
+        genera_thumbnail(
+            content["title"], THUMB_PATH,
+            mood=content.get("mood"),
+            thumbnail_description=content.get("thumbnail_description"),
+            thumbnail_phrase=content.get("thumbnail_phrase"),
+            thumbnail_font_size=content.get("thumbnail_font_size"),
+        )
+        cp["steps"].append("thumbnail")
+        _save_checkpoint(cp)
     _log(f"  → Thumbnail salvata: {THUMB_PATH}")
 
     # ── UPLOAD ──────────────────────────────────────────────────────────────
@@ -316,28 +428,39 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         _log("DRY RUN: upload saltato. Video e thumbnail sono pronti in output/.")
         return
     _log("📤 [7/7] Upload — caricamento su YouTube...")
-    notify_step("upload", "Upload su YouTube in corso...")
-    run_index = _runs_today(state)
-    immediate = bool(state.get("publish_immediately"))
-    publish_at = None if immediate else calcola_publish_slots(state, run_index)
-    if immediate:
-        _log("  -> Pubblicazione immediata")
+    if cp.get("video_id"):
+        # upload già riuscito in un run precedente crashato subito dopo:
+        # NON ricaricare lo stesso video (duplicato sul canale)
+        video_id = cp["video_id"]
+        publish_label = cp.get("publish_time", "già programmata")
+        _log(f"  → Upload già completato (checkpoint): https://youtu.be/{video_id}")
     else:
-        _log(f"  → Programmato per: {publish_at.strftime('%d/%m/%Y %H:%M UTC')}")
-    video_id = pubblica_video(
-        VIDEO_PATH,
-        THUMB_PATH,
-        content,
-        publish_at,
-        immediate=immediate,
-        privacy_status=os.environ.get("YOUTUBE_IMMEDIATE_PRIVACY", "public") if immediate else "private",
-    )
+        notify_step("upload", "Upload su YouTube in corso...")
+        run_index = _runs_today(state)
+        immediate = bool(state.get("publish_immediately"))
+        publish_at = None if immediate else calcola_publish_slots(state, run_index)
+        publish_label = "immediata" if immediate else publish_at.strftime("%d/%m/%Y %H:%M UTC")
+        if immediate:
+            _log("  -> Pubblicazione immediata")
+        else:
+            _log(f"  → Programmato per: {publish_label}")
+        video_id = pubblica_video(
+            VIDEO_PATH,
+            THUMB_PATH,
+            content,
+            publish_at,
+            immediate=immediate,
+            privacy_status=os.environ.get("YOUTUBE_IMMEDIATE_PRIVACY", "public") if immediate else "private",
+        )
+        cp["video_id"] = video_id
+        cp["publish_time"] = publish_label
+        _save_checkpoint(cp)
     _log(f"  → ✓ https://youtu.be/{video_id}")
 
     notify_done(
         title=content["title"],
         video_id=video_id,
-        publish_time="immediata" if immediate else publish_at.strftime("%d/%m/%Y %H:%M UTC"),
+        publish_time=publish_label,
         thumb_path=THUMB_PATH,
     )
 
@@ -346,15 +469,17 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _pipeline_step = "salvataggio"
     fresh = _load_state()
     recent = fresh.get("recent_topics", [])
-    recent.insert(0, topic)
+    if topic:
+        recent.insert(0, topic)
     fresh["recent_topics"] = recent[:10]
     fresh["last_run_date"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    fresh["video_ids"] = ([video_id] + fresh.get("video_ids", []))[:20]
+    fresh["video_ids"] = ([video_id] + [v for v in fresh.get("video_ids", []) if v != video_id])[:20]
     fresh.pop("force_run", None)
     fresh.pop("publish_immediately", None)
     fresh.pop("abort_pipeline", None)
     _increment_runs_today(fresh)
     _save_state(fresh)
+    _clear_checkpoint()
     _log("━━━ PIPELINE COMPLETATA ━━━\n")
 
 
@@ -393,6 +518,12 @@ def _update_best_hours(state: dict, performance: list) -> None:
     else:
         hours = spreads.get(videos_per_day, [20])
     state["best_hours_utc"] = hours
+    # persisti subito: lo state passato alla pipeline non viene risalvato
+    # integralmente a fine run (pattern anti lost-update)
+    fresh = _load_state()
+    if fresh.get("best_hours_utc") != hours:
+        fresh["best_hours_utc"] = hours
+        _save_state(fresh)
     print(f"  Auto-scheduling: best hours set to {hours}")
 
 
@@ -446,11 +577,30 @@ def main():
     _log(f"  Video al giorno: {vpd} | Trigger: {trigger_hours} UTC")
     _log(f"  Topic in coda: {len(state.get('topic_queue', []))}")
 
-    start_bot()
+    bot_thread = start_bot()
+    bot_restarts = 0
+
+    last_attempt = None  # (data, ora) dell'ultimo trigger schedulato
 
     while True:
         state = _load_state()
         now = datetime.now(timezone.utc)
+
+        # watchdog: senza bot l'agente resta vivo ma non più controllabile
+        # da Telegram — riavvialo (max 3 volte, poi avvisa e arrenditi)
+        if bot_thread is not None and not bot_thread.is_alive():
+            if bot_restarts < 3:
+                bot_restarts += 1
+                _log(f"Bot Telegram terminato — riavvio ({bot_restarts}/3)...")
+                notify_error(f"Bot Telegram crashato — riavvio automatico ({bot_restarts}/3).")
+                bot_thread = start_bot()
+            else:
+                _log("Bot Telegram crashato troppe volte — stop riavvii automatici.")
+                notify_error(
+                    "Bot Telegram crashato ripetutamente: controllo remoto disattivato. "
+                    "La pipeline continua da sola; riavvia l'agente per ripristinare il bot."
+                )
+                bot_thread = None
 
         if now.minute == 0:
             trigger_hours = _get_trigger_hours(state)
@@ -458,9 +608,13 @@ def main():
             done = _runs_today(state)
             print(f"[{now.strftime('%Y-%m-%d %H:%M UTC')}] tick — {done}/{vpd} video oggi — trigger: {trigger_hours}")
 
-        if _should_run(state, now):
-            reason = "FORCED" if state.get("force_run") else "scheduled"
-            _log(f"Trigger ({reason}) — avvio pipeline")
+        if _should_run(state, now, last_attempt):
+            forced = bool(state.get("force_run"))
+            if not forced:
+                # segna il tentativo PRIMA di partire: un crash non fa
+                # ripartire la pipeline in loop nella stessa ora
+                last_attempt = (now.strftime("%Y-%m-%d"), now.hour)
+            _log(f"Trigger ({'FORCED' if forced else 'scheduled'}) — avvio pipeline")
             # Pulisci force_run PRIMA di partire: se la pipeline crasha,
             # il flag è già rimosso e il daemon non entra in loop infinito.
             state.pop("force_run", None)
@@ -468,23 +622,21 @@ def main():
             _save_state(state)
             try:
                 run_pipeline(state)
+            except PipelineAbort:
                 state = _load_state()
+                state.pop("abort_pipeline", None)
+                _save_state(state)
+                notify_error("Pipeline interrotta su richiesta Telegram.")
             except Exception:
                 err = traceback.format_exc()
                 _log(err)
-                if isinstance(sys.exc_info()[1], PipelineAbort):
-                    state = _load_state()
-                    state.pop("abort_pipeline", None)
-                    _save_state(state)
-                    notify_error("Pipeline interrotta su richiesta Telegram.")
-                    continue
                 last_line = err.strip().split("\n")[-1][:300]
                 notify_error(
-                    f"Crash allo step <b>{_pipeline_step}</b>\n\n"
-                    f"<code>{last_line}</code>\n\n"
+                    f"Crash allo step {_pipeline_step}\n\n"
+                    f"{last_line}\n\n"
                     f"Controlla i log. Usa /forza per riprovare."
                 )
-                state = _load_state()
+            state = _load_state()
 
         time.sleep(60)
 

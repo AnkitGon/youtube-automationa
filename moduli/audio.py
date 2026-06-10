@@ -1,4 +1,3 @@
-import asyncio
 import os
 import shutil
 import subprocess
@@ -99,7 +98,8 @@ def _concat_audio(parts: list[str], output_path: str) -> None:
         )
         os.remove(list_file)
         return
-    except FileNotFoundError:
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        # ffmpeg assente O concat fallito → fallback byte-concat sotto
         pass
     # Fallback: raw MP3 byte concat (works since edge-tts chunks share codec/bitrate)
     with open(output_path, "wb") as out:
@@ -161,7 +161,7 @@ def _gtts_lang(voice: str) -> str:
     return parts[0] if parts else "en"
 
 
-def genera_audio(text: str, output_path: str, retries: int = 2) -> None:
+def genera_audio(text: str, output_path: str) -> None:
     voice = _load_voice()
     words = len(text.split())
     print(f"[TTS] Edge TTS avvio — voce: {voice} ({words} parole)...", flush=True)

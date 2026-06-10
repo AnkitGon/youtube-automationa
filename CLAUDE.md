@@ -72,11 +72,11 @@ Side channels:
 `state.json` is the single source of truth for the daemon. Hand-edits are valid control surface.
 
 Keys consumed by `agent.py`:
-- `videos_per_day` (default 1), `trigger_hours_utc` (default `[14]`), `auto_scheduling` + `best_hours_utc`
+- `videos_per_day` (default 1); production trigger priority: explicit `trigger_hours_utc` > `auto_scheduling` + `best_hours_utc` (publish − 3h) > `publish_hours_utc` (publish − 3h, set by `/setpubblica`) > default `[14]`
 - `topic_queue` — FIFO of pending topics
 - `recent_topics`, `video_ids` — capped histories
 - `force_run` — bypass scheduler once (auto-cleared)
-- `abort_pipeline` — raises `PipelineAborted` at next `_check_abort()` (auto-cleared)
+- `abort_pipeline` — raises `PipelineAbort` at next `_check_abort()` (auto-cleared)
 - `runs_today` — `{date: count}`, single-day only
 - `chat_history` — Telegram per-user message buffer
 

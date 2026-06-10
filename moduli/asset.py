@@ -57,23 +57,33 @@ def _cache_variants(keyword: str) -> list[str]:
 
 
 def _download(url: str, dest: str) -> None:
-    with requests.get(url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        content_type = r.headers.get("content-type", "")
-        if content_type and "video" not in content_type and "octet-stream" not in content_type:
-            raise RuntimeError(f"Unexpected clip content-type: {content_type}")
-        expected = r.headers.get("content-length")
-        if expected and int(expected) > MAX_DOWNLOAD_BYTES:
-            raise RuntimeError(f"Clip too large: {int(expected) // (1024 * 1024)} MB")
-        downloaded = 0
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(chunk_size=65536):
-                if not chunk:
-                    continue
-                downloaded += len(chunk)
-                if downloaded > MAX_DOWNLOAD_BYTES:
-                    raise RuntimeError(f"Clip exceeded limit: {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
-                f.write(chunk)
+    try:
+        with requests.get(url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            content_type = r.headers.get("content-type", "")
+            if content_type and "video" not in content_type and "octet-stream" not in content_type:
+                raise RuntimeError(f"Unexpected clip content-type: {content_type}")
+            expected = r.headers.get("content-length")
+            if expected and int(expected) > MAX_DOWNLOAD_BYTES:
+                raise RuntimeError(f"Clip too large: {int(expected) // (1024 * 1024)} MB")
+            downloaded = 0
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(chunk_size=65536):
+                    if not chunk:
+                        continue
+                    downloaded += len(chunk)
+                    if downloaded > MAX_DOWNLOAD_BYTES:
+                        raise RuntimeError(f"Clip exceeded limit: {MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB")
+                    f.write(chunk)
+    except Exception:
+        # niente file parziali in cache: verrebbero riusati come clip valide
+        # nei run successivi e corromperebbero il montaggio
+        try:
+            if os.path.exists(dest):
+                os.remove(dest)
+        except OSError:
+            pass
+        raise
 
 
 def _best_file(video_files: list) -> str:
@@ -140,7 +150,7 @@ def scarica_clip(keyword: str, extra_tags: list[str] | None = None) -> str:
     path = _cache_path(keyword)
     api_key = os.environ.get("PEXELS_API_KEY", "")
     if not api_key:
-        raise RuntimeError("PEXELS_API_KEY not set — run 'youtube-ai-agent onboard' to configure")
+        raise RuntimeError("PEXELS_API_KEY not set — run 'tube-assistant onboard' to configure")
     headers = {"Authorization": api_key}
     index = _load_index()
 
@@ -210,7 +220,7 @@ def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = N
     os.makedirs(CACHE_DIR, exist_ok=True)
     api_key = os.environ.get("PEXELS_API_KEY", "")
     if not api_key:
-        raise RuntimeError("PEXELS_API_KEY not set — run 'youtube-ai-agent onboard' to configure")
+        raise RuntimeError("PEXELS_API_KEY not set — run 'tube-assistant onboard' to configure")
     headers = {"Authorization": api_key}
     index = _load_index()
 

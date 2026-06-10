@@ -1,12 +1,10 @@
 import os
-import json
 from datetime import datetime, timezone, timedelta
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from moduli.google_auth import get_credentials
 
 DEFAULT_PUBLISH_HOURS = [20]
-STATE_FILE = "state.json"
 
 # smart publish spreads per number of videos/day
 _PUBLISH_SPREADS = {
@@ -24,6 +22,8 @@ def calcola_publish_slots(state: dict, run_index: int = 0) -> datetime:
 
     # explicit publish_hours_utc overrides everything
     hours = state.get("publish_hours_utc")
+    if not hours and state.get("auto_scheduling"):
+        hours = state.get("best_hours_utc")
     if not hours:
         vpd = state.get("videos_per_day", 1)
         hours = _PUBLISH_SPREADS.get(vpd, DEFAULT_PUBLISH_HOURS)
@@ -36,12 +36,8 @@ def calcola_publish_slots(state: dict, run_index: int = 0) -> datetime:
 
 
 def _next_best_slot() -> datetime:
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, encoding="utf-8") as f:
-            state = json.load(f)
-    else:
-        state = {}
-    return calcola_publish_slots(state, 0)
+    from moduli.state_io import load_state
+    return calcola_publish_slots(load_state(), 0)
 
 
 def _get_youtube():
