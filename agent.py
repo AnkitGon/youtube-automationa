@@ -70,6 +70,9 @@ from moduli.thumbnail import genera_thumbnail
 from moduli.pubblica import pubblica_video, calcola_publish_slots
 from moduli.analytics import leggi_performance
 from moduli.strategia import calcola_strategia
+from moduli.manutenzione import (
+    assicura_spazio, pulisci_cache, pulisci_temp_render, spazio_libero_gb,
+)
 from moduli.notifiche import (
 notify_start, notify_step, notify_done, notify_error, notify_analytics
 )
@@ -263,6 +266,9 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
             _log(f"     ✗ Saltata: {e}")
 
     _log(f"  → {len(clip_paths)} clip distinte scaricate (target {target_clips})")
+    liberati = pulisci_cache()
+    if liberati:
+        _log(f"  → Cache potata: {liberati:.0f} MB liberati (tetto {os.environ.get('MAX_CACHE_MB', '2000')} MB)")
     if not clip_paths:
         msg = "Nessuna clip scaricata — pipeline interrotta"
         _log(f"  ✗ ERRORE: {msg}")
@@ -273,6 +279,17 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _check_abort()
     _pipeline_step = "montaggio"
     _log("⚙️ [5/7] Montaggio — rendering video (5-15 min)...")
+    # guardia disco: il render riempie output/ di file temporanei. Se lo spazio
+    # e' poco, prova a liberare la cache, altrimenti aborta con messaggio chiaro
+    # invece di crashare a meta' rendering (OSError 28: No space left on device).
+    pulisci_temp_render("output")
+    try:
+        assicura_spazio(work_dir="output")
+    except RuntimeError as e:
+        _log(f"  ✗ {e}")
+        notify_error(str(e))
+        raise
+    _log(f"  → Spazio disco: {spazio_libero_gb('output'):.1f} GB liberi")
     notify_step("rendering", "Montaggio in corso (5-15 min)...")
     monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH)
     _check_abort()
@@ -408,6 +425,14 @@ def _cleanup_stale_state() -> None:
     if changed:
         _save_state(state)
     _log(f"  Topic in coda dopo pulizia: {state.get('topic_queue', [])}")
+    # manutenzione disco al boot: temp orfani + cache sotto soglia
+    n_temp = pulisci_temp_render("output")
+    if n_temp:
+        _log(f"  → Rimossi {n_temp} render temporanei orfani")
+    liberati = pulisci_cache()
+    if liberati:
+        _log(f"  → Cache potata: {liberati:.0f} MB liberati")
+    _log(f"  Spazio disco libero: {spazio_libero_gb('.'):.1f} GB")
 
 
 def main():

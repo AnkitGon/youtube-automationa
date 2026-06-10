@@ -57,6 +57,10 @@ def run():
         sys.exit(1)
 
     print("\n=== [D] Rendering video ===")
+    from moduli.manutenzione import assicura_spazio, pulisci_temp_render, spazio_libero_gb
+    pulisci_temp_render("output")
+    assicura_spazio(work_dir="output")
+    print(f"  Disk free: {spazio_libero_gb('output'):.1f} GB")
     monta_video(AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH, mood=content.get("mood"))
     print(f"  Saved: {VIDEO_PATH}")
 
