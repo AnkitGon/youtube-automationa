@@ -100,6 +100,60 @@ TRIGGER_LEAD_HOURS = 3
 _pipeline_step = "init"
 
 
+def _segna_step(nome: str, pct: int | None = None) -> None:
+    """Aggiorna lo step corrente sia in memoria (per i crash report) sia in
+    state.json (pipeline_status), così /status mostra cosa sta succedendo."""
+    global _pipeline_step
+    _pipeline_step = nome
+    try:
+        fresh = _load_state()
+        status = {
+            "step": nome,
+            "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        if pct is not None:
+            status["pct"] = pct
+        fresh["pipeline_status"] = status
+        _save_state(fresh)
+    except Exception:
+        pass
+
+
+def _pulisci_status_pipeline() -> None:
+    try:
+        fresh = _load_state()
+        if fresh.pop("pipeline_status", None) is not None:
+            _save_state(fresh)
+    except Exception:
+        pass
+
+
+def _spiega_errore(err: str) -> str:
+    """Traduce gli errori comuni in un messaggio umano con l'azione da fare."""
+    e = err.lower()
+    if "uploadlimitexceeded" in e or "quotaexceeded" in e or "dailylimitexceeded" in e:
+        return ("Quota YouTube esaurita per oggi: si resetta a mezzanotte ora del "
+                "Pacifico (~09:00 in Italia). Riprova più tardi con /forza.")
+    if "invalid_grant" in e or "refresherror" in e or ("token" in e and ("expired" in e or "revoked" in e)):
+        return "Login Google scaduto o revocato: cancella token.json e riavvia l'agente per rifare il login."
+    if "no space left" in e or "errno 28" in e or "spazio disco insufficiente" in e:
+        return "Disco pieno: libera spazio e riprova con /forza."
+    if "ffmpeg not found" in e:
+        return "ffmpeg non trovato: installalo e aggiungilo al PATH, oppure imposta FFMPEG_PATH nel .env."
+    if "pexels" in e and ("401" in e or "403" in e or "unauthorized" in e):
+        return "Chiave Pexels rifiutata: controlla PEXELS_API_KEY nel .env."
+    if "no pexels results" in e or "nessuna clip" in e:
+        return "Nessuna clip trovata per le keyword generate: riprova con /forza (verranno generate keyword nuove)."
+    if "429" in e or "ratelimit" in e or "rate limit" in e or "too many requests" in e:
+        return "Servizio esterno in rate limit (troppe richieste): aspetta qualche minuto e usa /forza."
+    if ("connection" in e or "timed out" in e or "timeout" in e
+            or "getaddrinfo" in e or "name resolution" in e or "unreachable" in e):
+        return "Problema di rete: controlla la connessione. Riproverò al prossimo orario, oppure usa /forza."
+    if "script troppo corto" in e:
+        return "L'AI ha generato uno script troppo corto due volte: riprova con /forza o cambia topic."
+    return ""
+
+
 def _acquire_pid_lock() -> None:
     """Blocca il doppio avvio: esce se un'altra istanza è già in esecuzione."""
     if os.path.exists(PID_FILE):
@@ -263,12 +317,11 @@ def _scarica_tutte_le_clips(keywords: list) -> dict:
 
 
 def run_pipeline(state: dict, dry_run: bool = False) -> None:
-    global _pipeline_step
     os.makedirs("output", exist_ok=True)
     _log("━━━ PIPELINE AVVIATA ━━━")
 
     # ── ANALYTICS ──────────────────────────────────────────────────────────
-    _pipeline_step = "analytics"
+    _segna_step("analytics")
     _log("📊 [1/7] Analytics — lettura performance canale...")
     notify_step("strategy", "Analizzo le performance del canale...")
     try:
@@ -291,7 +344,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _log(f"  → Strategia: {strategy.get('notes', '')}")
 
     # ── TOPIC & CONTENUTO ───────────────────────────────────────────────────
-    _pipeline_step = "contenuto"
+    _segna_step("contenuto")
     _log("🧠 [2/7] Topic & Contenuto — generazione script...")
     cp = _load_checkpoint()
     if "content" in cp.get("steps", []) and cp.get("content"):
@@ -332,7 +385,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _log(f"  → Script: ~{script_words} parole")
 
     # ── AUDIO ───────────────────────────────────────────────────────────────
-    _pipeline_step = "audio"
+    _segna_step("audio")
     _log("🎙️ [3/7] Audio — sintesi vocale con Edge TTS...")
     if "audio" in cp["steps"] and os.path.exists(AUDIO_PATH):
         _log(f"  → Ripreso da checkpoint: {AUDIO_PATH}")
@@ -346,7 +399,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _log(f"  → Audio salvato: {AUDIO_PATH} ({size} KB)")
 
     # ── CLIP ────────────────────────────────────────────────────────────────
-    _pipeline_step = "clips"
+    _segna_step("clips")
     _log("🎞️ [4/7] Clip — scarico video da Pexels...")
     keywords = content.get("video_keywords", [])
     clip_paths = {}
@@ -374,7 +427,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
 
     # ── MONTAGGIO ───────────────────────────────────────────────────────────
     _check_abort()
-    _pipeline_step = "montaggio"
+    _segna_step("montaggio")
     _log("⚙️ [5/7] Montaggio — rendering video (5-15 min)...")
     # guardia disco: il render riempie output/ di file temporanei. Se lo spazio
     # e' poco, prova a liberare la cache, altrimenti aborta con messaggio chiaro
@@ -391,9 +444,22 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         _log(f"  → Ripreso da checkpoint: {VIDEO_PATH}")
     else:
         notify_step("rendering", "Montaggio in corso (5-15 min)...")
+
+        # progresso su Telegram a 25/50/75% e in state.json (per /status):
+        # senza, durante il render l'utente resta 15 minuti al buio
+        _soglie_notifica = [25, 50, 75]
+
+        def _avanzamento(pct, eta):
+            _segna_step("montaggio", pct)
+            if _soglie_notifica and pct >= _soglie_notifica[0]:
+                while _soglie_notifica and pct >= _soglie_notifica[0]:
+                    _soglie_notifica.pop(0)
+                notify_step("rendering", f"Rendering {pct}% — ETA {eta}")
+
         monta_video(
             AUDIO_PATH, list(clip_paths.keys()), clip_paths, VIDEO_PATH,
             mood=content.get("mood"),
+            on_progress=_avanzamento,
             captions_text=content.get("script"),
         )
         cp["steps"].append("montage")
@@ -403,7 +469,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     _log(f"  → Video salvato: {VIDEO_PATH} ({size} MB)")
 
     # ── THUMBNAIL ───────────────────────────────────────────────────────────
-    _pipeline_step = "thumbnail"
+    _segna_step("thumbnail")
     _log("🖼️ [6/7] Thumbnail — generazione con AI...")
     if "thumbnail" in cp["steps"] and os.path.exists(THUMB_PATH):
         _log(f"  → Ripresa da checkpoint: {THUMB_PATH}")
@@ -422,10 +488,11 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
 
     # ── UPLOAD ──────────────────────────────────────────────────────────────
     _check_abort()
-    _pipeline_step = "upload"
+    _segna_step("upload")
     if dry_run:
-        _pipeline_step = "dry_run"
+        _segna_step("dry_run")
         _log("DRY RUN: upload saltato. Video e thumbnail sono pronti in output/.")
+        _pulisci_status_pipeline()
         return
     _log("📤 [7/7] Upload — caricamento su YouTube...")
     if cp.get("video_id"):
@@ -484,7 +551,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
 
     # Ricarica lo state più recente (il bot Telegram può aver scritto durante la pipeline)
     # e applica solo le modifiche prodotte dalla pipeline — evita lost-update.
-    _pipeline_step = "salvataggio"
+    _segna_step("salvataggio")
     fresh = _load_state()
     recent = fresh.get("recent_topics", [])
     if topic:
@@ -496,6 +563,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     fresh.pop("publish_immediately", None)
     fresh.pop("abort_pipeline", None)
     _increment_runs_today(fresh)
+    fresh.pop("pipeline_status", None)
     _save_state(fresh)
     _clear_checkpoint()
     _log("━━━ PIPELINE COMPLETATA ━━━\n")
@@ -557,6 +625,9 @@ def _cleanup_stale_state() -> None:
         changed = True
     if state.pop("abort_pipeline", None) is not None:
         _log("  -> abort_pipeline rimosso (stale da sessione precedente)")
+        changed = True
+    if state.pop("pipeline_status", None) is not None:
+        _log("  -> pipeline_status rimosso (stale da sessione precedente)")
         changed = True
     # rimuovi topic "…" o vuoti finiti in coda per errore
     queue = state.get("topic_queue", [])
@@ -651,11 +722,14 @@ def main():
                 err = traceback.format_exc()
                 _log(err)
                 last_line = err.strip().split("\n")[-1][:300]
+                spiegazione = _spiega_errore(err)
                 notify_error(
                     f"Crash allo step {_pipeline_step}\n\n"
                     f"{last_line}\n\n"
-                    f"Controlla i log. Usa /forza per riprovare."
+                    + (spiegazione or "Controlla i log. Usa /forza per riprovare.")
                 )
+            finally:
+                _pulisci_status_pipeline()
             state = _load_state()
 
         time.sleep(60)

@@ -687,8 +687,22 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     recent = state.get("recent_topics", [])
     last_video = state.get("video_ids", [None])[0]
 
+    ps = state.get("pipeline_status")
+    if ps:
+        pct = ps.get("pct")
+        attivita = (f"🔄 In produzione — step: <b>{_h(ps.get('step', '?'))}</b>"
+                    + (f" ({pct}%)" if pct else "")
+                    + f"\n   agg. {_h(ps.get('updated_at', ''))}")
+    else:
+        trigger_dt, _, _ = _next_schedule(state)
+        if trigger_dt:
+            attivita = f"⏳ In attesa — prossima pipeline: {trigger_dt.strftime('%d/%m %H:%M UTC')}"
+        else:
+            attivita = "⏳ In attesa — nessun orario configurato"
+
     msg = (
         f"📡 <b>Status Agent</b>\n\n"
+        f"{attivita}\n\n"
         f"🗓 Ultimo run: {last}\n"
         f"📋 Topic in coda: {len(queue)}\n"
         f"📹 Video prodotti: {len(state.get('video_ids', []))}\n"

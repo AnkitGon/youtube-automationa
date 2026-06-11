@@ -178,6 +178,34 @@ class RuntimeSafetyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cervello.genera_contenuto("topic")
 
+    def test_common_errors_get_human_explanation(self):
+        import importlib
+
+        with patch.dict(os.environ, {
+            "TELEGRAM_BOT_TOKEN": "token",
+            "TELEGRAM_CHAT_ID": "123",
+            "AI_SERVICE": "openrouter",
+            "OPENROUTER_API_KEY": "key",
+            "PEXELS_API_KEY": "pexels",
+        }, clear=False):
+            agent = importlib.import_module("agent")
+
+        casi = {
+            'HttpError 403 "uploadLimitExceeded"': "Quota YouTube",
+            "RefreshError: invalid_grant": "token.json",
+            "OSError: [Errno 28] No space left on device": "Disco pieno",
+            "RuntimeError: No Pexels results for: robot": "Nessuna clip",
+            "HTTPError: 429 Too Many Requests": "rate limit",
+            "ffmpeg not found. Install it": "FFMPEG_PATH",
+            "ValueError: Script troppo corto: 80 parole": "script troppo corto",
+        }
+        for errore, atteso in casi.items():
+            spiegazione = agent._spiega_errore(errore)
+            self.assertIn(atteso.lower(), spiegazione.lower(),
+                          f"errore non spiegato: {errore!r} -> {spiegazione!r}")
+        # errore sconosciuto → stringa vuota (si usa il messaggio generico)
+        self.assertEqual(agent._spiega_errore("KeyError: 'boh'"), "")
+
     def test_srt_covers_audio_duration_with_monotonic_timing(self):
         from moduli.sottotitoli import genera_srt, _blocchi
 
@@ -302,8 +330,9 @@ class RuntimeSafetyTests(unittest.TestCase):
                 saved = _json.loads(Path("state.json").read_text(encoding="utf-8"))
                 self.assertEqual(saved["topic_queue"], ["Topic B"])
                 self.assertIn("Topic A", saved["recent_topics"])
-                # checkpoint ripulito a fine run
+                # checkpoint e status ripuliti a fine run
                 self.assertFalse(Path("output/pipeline_checkpoint.json").exists())
+                self.assertNotIn("pipeline_status", saved)
             finally:
                 os.chdir(old_cwd)
 
