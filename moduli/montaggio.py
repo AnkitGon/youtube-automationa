@@ -179,6 +179,20 @@ def _media_duration(path: str) -> float:
     return max(float(out or 0), 0.01)
 
 
+def _filtra_clip_leggibili(clip_files: list) -> tuple[list, dict]:
+    """Scarta clip mancanti o illeggibili (es. cancellate dalla pulizia cache o
+    download troncati) invece di far crashare il render. Ritorna i file validi
+    e le loro durate gia' misurate (evita un secondo ffprobe per segmento)."""
+    validi, durate = [], {}
+    for p in dict.fromkeys(p for p in clip_files if p):
+        try:
+            durate[p] = _media_duration(p)
+            validi.append(p)
+        except (subprocess.CalledProcessError, OSError, ValueError):
+            print(f"[montaggio] clip illeggibile o mancante, salto: {p}", flush=True)
+    return validi, durate
+
+
 def _concat_file_line(path: str) -> str:
     safe = os.path.abspath(path).replace("\\", "/").replace("'", "'\\''")
     return f"file '{safe}'\n"
@@ -305,8 +319,9 @@ def _select_key_captions(script: str, total_duration: float, n_segments: int) ->
     return captions
 
 
-def _render_segment_ffmpeg(src: str, dst: str, offset: float, duration: float, caption: str | None = None) -> None:
-    src_duration = _media_duration(src)
+def _render_segment_ffmpeg(src: str, dst: str, offset: float, duration: float, caption: str | None = None, src_duration: float | None = None) -> None:
+    if src_duration is None:
+        src_duration = _media_duration(src)
     vf = _caption_filter(caption)
     if src_duration < duration:
         cmd = [_ffmpeg(), "-y", "-stream_loop", "-1", "-i", src, "-t", f"{duration:.3f}"]
@@ -383,7 +398,13 @@ def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, outpu
     if not keywords:
         raise RuntimeError("montaggio: nessuna keyword fornita — impossibile selezionare clip")
 
-    clip_sequence = _build_clip_sequence([clip_paths[k] for k in keywords], n_segments)
+    clip_files, durate = _filtra_clip_leggibili([clip_paths[k] for k in keywords])
+    if not clip_files:
+        raise RuntimeError(
+            "montaggio: nessuna clip leggibile — la cache e' stata svuotata o i "
+            "download sono corrotti. Rilancia la pipeline con /forza."
+        )
+    clip_sequence = _build_clip_sequence(clip_files, n_segments)
     with tempfile.TemporaryDirectory(prefix="render_", dir=os.path.dirname(output_path) or None) as tmpdir:
         segment_paths = []
         for i in range(n_segments):
@@ -394,7 +415,7 @@ def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, outpu
             seg_dur = min(SEGMENT_DURATION, remaining)
             clip_path = clip_sequence[i]
             seg_path = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
-            _render_segment_ffmpeg(clip_path, seg_path, seg_start, seg_dur, captions.get(i))
+            _render_segment_ffmpeg(clip_path, seg_path, seg_start, seg_dur, captions.get(i), durate.get(clip_path))
             segment_paths.append(seg_path)
 
             pct = int((i + 1) / n_segments * 80)
@@ -522,7 +543,13 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
     n_segments = int(total_duration / SEGMENT_DURATION) + 1
     segments = []
 
-    clip_sequence = _build_clip_sequence([clip_paths[k] for k in keywords], n_segments)
+    clip_files, _ = _filtra_clip_leggibili([clip_paths[k] for k in keywords])
+    if not clip_files:
+        raise RuntimeError(
+            "montaggio: nessuna clip leggibile — la cache e' stata svuotata o i "
+            "download sono corrotti. Rilancia la pipeline con /forza."
+        )
+    clip_sequence = _build_clip_sequence(clip_files, n_segments)
     for i in range(n_segments):
         seg_start = i * SEGMENT_DURATION
         remaining = total_duration - seg_start

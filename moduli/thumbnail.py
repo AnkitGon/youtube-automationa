@@ -113,6 +113,45 @@ def _fetch_image_pollinations(title: str, mood: str = None, style: str = None) -
     return Image.open(BytesIO(r.content)).convert("RGB")
 
 
+def _fetch_image_da_clip() -> Image.Image:
+    """Estrae un frame da una clip Pexels in cache: sfondo vero invece del
+    gradiente quando tutti i provider AI falliscono."""
+    import glob
+    import subprocess
+    import tempfile
+    from moduli.ffmpeg_utils import ffmpeg_path
+    cache_dir = os.environ.get("CACHE_DIR", "cache/pexels")
+    clips = sorted(glob.glob(os.path.join(cache_dir, "*.mp4")),
+                   key=os.path.getmtime, reverse=True)
+    if not clips:
+        raise RuntimeError("nessuna clip in cache per estrarre un frame")
+    last_err = None
+    for clip in clips[:5]:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            frame_path = tmp.name
+        try:
+            r = subprocess.run(
+                [ffmpeg_path(), "-y", "-ss", "1", "-i", clip,
+                 "-frames:v", "1", "-q:v", "2",
+                 "-vf", f"scale={THUMB_W}:{THUMB_H}:force_original_aspect_ratio=increase,"
+                        f"crop={THUMB_W}:{THUMB_H}",
+                 frame_path],
+                capture_output=True, timeout=60,
+            )
+            if r.returncode == 0 and os.path.getsize(frame_path) > 0:
+                with Image.open(frame_path) as im:
+                    return im.convert("RGB")
+            last_err = RuntimeError(f"ffmpeg frame extract fallito su {clip}")
+        except Exception as e:
+            last_err = e
+        finally:
+            try:
+                os.remove(frame_path)
+            except OSError:
+                pass
+    raise last_err or RuntimeError("estrazione frame fallita")
+
+
 def _fetch_image_placeholder(title: str, mood: str = None, **_) -> Image.Image:
     """Sfondo gradiente generato localmente — nessuna rete. Ultima spiaggia
     cosi' una copertina viene SEMPRE prodotta (testo overlay sopra)."""
@@ -140,6 +179,15 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
     candidates = [
         FONT_PATH,
         "assets/font_bold.ttf",
+        # Linux / Raspberry Pi OS
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        # macOS
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/Library/Fonts/Arial Bold.ttf",
+        # Windows
         "arial.ttf",
         "arialbd.ttf",
         r"C:\Windows\Fonts\ariblk.ttf",   # Arial Black
@@ -153,7 +201,13 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
             return ImageFont.truetype(path, size)
         except Exception:
             continue
-    return ImageFont.load_default()
+    # Pillow >= 10.1: default vettoriale scalabile. Il vecchio load_default()
+    # senza size e' un bitmap ~11px: su sistemi senza i font sopra il testo
+    # diventava microscopico.
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 _FONT_PRESETS = {"A": 240, "B": 200, "C": 160, "D": 120}
@@ -319,8 +373,12 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
             print(f"[{label}] fallito: {e}", flush=True)
 
     if img is None:
-        print("[THUMBNAIL] tutti i provider AI falliti — uso gradiente locale", flush=True)
-        img = _fetch_image_placeholder(title, mood=mood)
+        try:
+            print("[THUMBNAIL] provider AI falliti — provo frame da clip in cache", flush=True)
+            img = _fetch_image_da_clip()
+        except Exception as e:
+            print(f"[THUMBNAIL] frame da clip fallito ({e}) — uso gradiente locale", flush=True)
+            img = _fetch_image_placeholder(title, mood=mood)
 
     if _pref.get("thumbnail_testo_mostra", True):
         _color = _parse_color(_pref.get("thumbnail_testo_colore", "255,255,255"))

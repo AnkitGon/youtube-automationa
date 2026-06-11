@@ -416,7 +416,9 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
             cp["steps"].append("clips")
         _save_checkpoint(cp)
 
-    liberati = pulisci_cache()
+    # le clip appena scaricate servono al montaggio: mai potarle (LRU per mtime
+    # le cancellerebbe perche' scaricate per prime → ffprobe crash al render)
+    liberati = pulisci_cache(protetti=set(clip_paths.values()))
     if liberati:
         _log(f"  → Cache potata: {liberati:.0f} MB liberati (tetto {os.environ.get('MAX_CACHE_MB', '2000')} MB)")
     if not clip_paths:
@@ -434,7 +436,7 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # invece di crashare a meta' rendering (OSError 28: No space left on device).
     pulisci_temp_render("output")
     try:
-        assicura_spazio(work_dir="output")
+        assicura_spazio(work_dir="output", protetti=set(clip_paths.values()))
     except RuntimeError as e:
         _log(f"  ✗ {e}")
         notify_error(str(e))
@@ -649,7 +651,9 @@ def _cleanup_stale_state() -> None:
     n_temp = pulisci_temp_render("output")
     if n_temp:
         _log(f"  → Rimossi {n_temp} render temporanei orfani")
-    liberati = pulisci_cache()
+    # proteggi le clip del checkpoint: servono se la run interrotta riprende
+    _cp_boot = _load_checkpoint()
+    liberati = pulisci_cache(protetti=set((_cp_boot.get("clip_paths") or {}).values()))
     if liberati:
         _log(f"  → Cache potata: {liberati:.0f} MB liberati")
     _log(f"  Spazio disco libero: {spazio_libero_gb('.'):.1f} GB")

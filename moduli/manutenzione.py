@@ -37,16 +37,17 @@ def spazio_libero_gb(path: str = ".") -> float:
         return float("inf")  # non blocchiamo se non riusciamo a leggere
 
 
-def assicura_spazio(min_gb: float = None, work_dir: str = "output") -> None:
+def assicura_spazio(min_gb: float = None, work_dir: str = "output", protetti: set = None) -> None:
     """Se lo spazio libero e' sotto la soglia, prima prova a liberare la cache,
     poi rilancia un errore chiaro. Da chiamare PRIMA del montaggio (lo step che
-    riempie il disco con i file temporanei di render)."""
+    riempie il disco con i file temporanei di render). `protetti` = clip che
+    servono alla run corrente, mai cancellate."""
     min_gb = MIN_FREE_DISK_GB if min_gb is None else min_gb
     libero = spazio_libero_gb(work_dir)
     if libero >= min_gb:
         return
-    # tentativo di recupero: svuota tutta la cache clip
-    liberati = pulisci_cache(max_mb=0)
+    # tentativo di recupero: svuota la cache clip (tranne le clip protette)
+    liberati = pulisci_cache(max_mb=0, protetti=protetti)
     libero = spazio_libero_gb(work_dir)
     if libero >= min_gb:
         return
@@ -67,10 +68,12 @@ def cache_size_mb() -> float:
     return sum(os.path.getsize(p) for p in _cache_files()) / (1024 ** 2)
 
 
-def pulisci_cache(max_mb: float = None) -> float:
+def pulisci_cache(max_mb: float = None, protetti: set = None) -> float:
     """Tiene la cache clip sotto `max_mb` cancellando i file piu' vecchi (LRU per
-    mtime). `max_mb=0` svuota tutto. Ritorna i MB liberati."""
+    mtime). `max_mb=0` svuota tutto. I path in `protetti` (clip che servono alla
+    run corrente) non vengono mai cancellati. Ritorna i MB liberati."""
     max_mb = MAX_CACHE_MB if max_mb is None else max_mb
+    protetti_abs = {os.path.abspath(p) for p in (protetti or ())}
     files = _cache_files()
     if not files:
         return 0.0
@@ -84,6 +87,8 @@ def pulisci_cache(max_mb: float = None) -> float:
     for p in files:
         if total <= limit:
             break
+        if os.path.abspath(p) in protetti_abs:
+            continue
         try:
             sz = os.path.getsize(p)
             os.remove(p)
