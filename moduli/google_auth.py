@@ -7,6 +7,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",  # captions API
     "https://www.googleapis.com/auth/yt-analytics.readonly",
 ]
 TOKEN_FILE = "token.json"
@@ -17,7 +18,11 @@ def get_credentials() -> Credentials:
     creds = None
     if os.path.exists(TOKEN_FILE):
         try:
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+            # NB: niente SCOPES qui — il token usa gli scope con cui è stato
+            # creato. Chiederne di nuovi al refresh farebbe fallire i token
+            # esistenti (invalid_scope). Le API che richiedono scope nuovi
+            # falliscono con errore chiaro: cancellare token.json e rifare login.
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE)
         except (ValueError, OSError):
             creds = None  # token corrotto → nuovo login
 

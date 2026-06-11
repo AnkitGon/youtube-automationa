@@ -457,6 +457,24 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         _save_checkpoint(cp)
     _log(f"  → ✓ https://youtu.be/{video_id}")
 
+    # sottotitoli: best-effort, un fallimento qui non deve bloccare la pipeline
+    if "captions" not in cp["steps"]:
+        try:
+            from moduli.montaggio import _media_duration
+            from moduli.sottotitoli import genera_srt
+            from moduli.pubblica import carica_sottotitoli
+            from moduli.preferenze import carica as _carica_pref
+            srt = genera_srt(content.get("script", ""), _media_duration(AUDIO_PATH),
+                             "output/sottotitoli.srt")
+            if srt:
+                lingua = "it" if _carica_pref().get("lingua") == "italian" else "en"
+                carica_sottotitoli(video_id, srt, language=lingua)
+                cp["steps"].append("captions")
+                _save_checkpoint(cp)
+                _log("  → Sottotitoli caricati")
+        except Exception as e:
+            _log(f"  → Sottotitoli saltati: {e}")
+
     notify_done(
         title=content["title"],
         video_id=video_id,
@@ -567,6 +585,8 @@ def _cleanup_stale_state() -> None:
 
 
 def main():
+    from moduli.logsetup import setup as _log_su_file
+    _log_su_file()
     _acquire_pid_lock()
     _log("━━━ YouTube AI Agent avviato ━━━")
     _cleanup_stale_state()

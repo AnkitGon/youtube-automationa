@@ -178,6 +178,41 @@ class RuntimeSafetyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cervello.genera_contenuto("topic")
 
+    def test_srt_covers_audio_duration_with_monotonic_timing(self):
+        from moduli.sottotitoli import genera_srt, _blocchi
+
+        script = ("First sentence here. " * 3 +
+                  "A much longer sentence with many many words that gets split into blocks of twelve words maximum right here. " * 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "subs.srt")
+            self.assertEqual(genera_srt(script, 60.0, out), out)
+            text = Path(out).read_text(encoding="utf-8")
+
+        # blocchi max 12 parole
+        for blocco in _blocchi(script):
+            self.assertLessEqual(len(blocco.split()), 12)
+        # formato e copertura: ultimo timestamp == durata audio
+        self.assertIn("00:00:00,000 -->", text)
+        self.assertIn("00:01:00,000", text)
+        # timing monotono
+        import re as _re
+        times = [int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000
+                 for h, m, s, ms in _re.findall(r"(\d+):(\d+):(\d+),(\d+)", text)]
+        self.assertEqual(times, sorted(times))
+
+        # input vuoto → None, nessun file
+        self.assertIsNone(genera_srt("", 60.0, "unused.srt"))
+        self.assertIsNone(genera_srt("ciao mondo", 0, "unused.srt"))
+
+    def test_short_pexels_clips_are_filtered_out(self):
+        from moduli.asset import _filtra_durata
+
+        videos = [{"id": 1, "duration": 3}, {"id": 2, "duration": 12}, {"id": 3}]
+        self.assertEqual(_filtra_durata(videos), [{"id": 2, "duration": 12}])
+        # se nessuna clip è abbastanza lunga, meglio le corte di niente
+        corte = [{"id": 1, "duration": 2}, {"id": 3, "duration": 4}]
+        self.assertEqual(_filtra_durata(corte), corte)
+
     def test_model_json_parser_uses_first_complete_object(self):
         from moduli.cervello import _parse_json
 

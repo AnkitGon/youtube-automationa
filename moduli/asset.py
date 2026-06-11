@@ -7,6 +7,15 @@ CACHE_DIR = "cache/pexels"
 PEXELS_SEARCH = "https://api.pexels.com/videos/search"
 INDEX_PATH = os.path.join(CACHE_DIR, "index.json")
 MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_CLIP_DOWNLOAD_MB", "250")) * 1024 * 1024
+# i segmenti del montaggio durano 5s: clip più corte vanno in loop visibile
+MIN_CLIP_SECONDS = float(os.environ.get("MIN_CLIP_SECONDS", "5"))
+
+
+def _filtra_durata(videos: list) -> list:
+    """Preferisce clip lunghe almeno MIN_CLIP_SECONDS; se il filtro svuota
+    tutto, restituisce la lista originale (meglio una clip corta che zero)."""
+    lunghe = [v for v in videos if (v.get("duration") or 0) >= MIN_CLIP_SECONDS]
+    return lunghe if lunghe else videos
 
 
 def _load_index() -> dict:
@@ -192,6 +201,7 @@ def scarica_clip(keyword: str, extra_tags: list[str] | None = None) -> str:
 
     if not videos:
         raise RuntimeError(f"No Pexels results for: {keyword}")
+    videos = _filtra_durata(videos)
 
     link = _best_file(videos[0]["video_files"])
     _download(link, path)
@@ -239,6 +249,7 @@ def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = N
 
     if not videos:
         raise RuntimeError(f"No Pexels results for: {keyword}")
+    videos = _filtra_durata(videos)
 
     tags = _keyword_to_tags(keyword)
     if extra_tags:

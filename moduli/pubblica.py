@@ -101,6 +101,21 @@ def pubblica_video(
     return video_id
 
 
+def carica_sottotitoli(video_id: str, srt_path: str, language: str = "en",
+                       name: str = "") -> None:
+    """Carica una traccia sottotitoli SRT sul video.
+
+    Richiede lo scope youtube.force-ssl: i token creati prima dell'aggiunta
+    dello scope falliscono qui — basta cancellare token.json e rifare login."""
+    youtube = _get_youtube()
+    youtube.captions().insert(
+        part="snippet",
+        body={"snippet": {"videoId": video_id, "language": language,
+                          "name": name, "isDraft": False}},
+        media_body=MediaFileUpload(srt_path, mimetype="application/octet-stream"),
+    ).execute()
+
+
 def aggiorna_video(video_id: str, title: str = None, description: str = None,
                    tags: list = None, thumbnail_path: str = None) -> dict:
     youtube = _get_youtube()

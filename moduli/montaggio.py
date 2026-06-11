@@ -1,47 +1,21 @@
 import os
 import glob
 import random
-import shutil
 import subprocess
 import time
 import platform
 import tempfile
 import re
 
-def _ffmpeg() -> str:
-    env_path = os.environ.get("FFMPEG_PATH")
-    if env_path and os.path.exists(env_path):
-        return env_path
-    if shutil.which("ffmpeg"):
-        return "ffmpeg"
-    candidates = [
-        r"C:\ffmpeg\bin\ffmpeg.exe",
-        r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
-        r"C:\ProgramData\chocolatey\bin\ffmpeg.exe",
-        "/usr/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/opt/homebrew/bin/ffmpeg",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    raise FileNotFoundError(
-        "ffmpeg not found. Install it and add to PATH, or set FFMPEG_PATH=/path/to/ffmpeg"
-    )
-
-
-def _ffprobe() -> str:
-    ff = _ffmpeg()
-    if ff != "ffmpeg":
-        candidate = os.path.join(os.path.dirname(ff), "ffprobe.exe")
-        if os.path.exists(candidate):
-            return candidate
-    if shutil.which("ffprobe"):
-        return "ffprobe"
-    return "ffprobe"
+from moduli.ffmpeg_utils import ffmpeg_path as _ffmpeg, ffprobe_path as _ffprobe
 
 import moviepy.config as _mpy_cfg
-_mpy_cfg.FFMPEG_BINARY = _ffmpeg()
+try:
+    _mpy_cfg.FFMPEG_BINARY = _ffmpeg()
+except FileNotFoundError:
+    # niente crash all'import (es. CI senza ffmpeg): l'errore chiaro
+    # arriverà comunque al momento del render
+    pass
 
 SEGMENT_DURATION = 5.0
 
@@ -236,7 +210,7 @@ def _caption_filter(caption: str | None) -> str:
     return ",".join(vf)
 
 
-def _drawtext_font_part() -> str:
+def _caption_font_path() -> str | None:
     candidates = [
         "assets/font_bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -246,9 +220,16 @@ def _drawtext_font_part() -> str:
     ]
     for path in candidates:
         if os.path.exists(path):
-            safe = os.path.abspath(path).replace("\\", "/").replace(":", "\\:")
-            return f"fontfile='{safe}':"
-    return ""
+            return path
+    return None
+
+
+def _drawtext_font_part() -> str:
+    path = _caption_font_path()
+    if not path:
+        return ""
+    safe = os.path.abspath(path).replace("\\", "/").replace(":", "\\:")
+    return f"fontfile='{safe}':"
 
 
 def _escape_drawtext(text: str) -> str:
@@ -484,6 +465,49 @@ class _ProgressLogger(ProgressBarLogger):
                 pass
 
 
+def _overlay_captions_moviepy(video, captions_text: str | None,
+                              total_duration: float, n_segments: int):
+    """Sovrappone i testi chiave anche nel percorso MoviePy (prima li
+    disegnava solo il render ffmpeg low-power). Best-effort: qualsiasi
+    problema con font/TextClip non deve far fallire il render."""
+    captions = _select_key_captions(captions_text or "", total_duration, n_segments)
+    if not captions:
+        return video
+    font = _caption_font_path()
+    if not font:
+        print("[montaggio] Nessun font trovato — caption saltate", flush=True)
+        return video
+    try:
+        from moviepy import CompositeVideoClip, TextClip
+        overlays = []
+        for idx, caption in captions.items():
+            start = idx * SEGMENT_DURATION
+            dur = min(SEGMENT_DURATION, total_duration - start)
+            if dur <= 0:
+                continue
+            txt = TextClip(
+                font=font,
+                text=caption,
+                font_size=CAPTION_FONT_SIZE,
+                color="white",
+                stroke_color="black",
+                stroke_width=3,
+                method="caption",
+                size=(int(OUTPUT_W * 0.9), None),
+            )
+            txt = (txt.with_start(start)
+                      .with_duration(dur)
+                      .with_position(("center", OUTPUT_H - txt.h - 72)))
+            overlays.append(txt)
+        if not overlays:
+            return video
+        print(f"[montaggio] Testi chiave: {len(overlays)} frasi", flush=True)
+        return CompositeVideoClip([video, *overlays], size=(OUTPUT_W, OUTPUT_H))
+    except Exception as e:
+        print(f"[montaggio] Caption MoviePy saltate: {e}", flush=True)
+        return video
+
+
 def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: str, mood: str = None, on_progress=None, custom_music: str = None, captions_text: str = None) -> None:
     if _FFMPEG_ONLY:
         _monta_video_ffmpeg(audio_path, keywords, clip_paths, output_path, mood, on_progress, custom_music, captions_text)
@@ -514,6 +538,7 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
     if not segments:
         raise RuntimeError("montaggio: nessun segmento video creato — audio troppo corto?")
     video = concatenate_videoclips(segments, method="compose")
+    video = _overlay_captions_moviepy(video, captions_text, total_duration, n_segments)
 
     audio_tracks = [narration]
 

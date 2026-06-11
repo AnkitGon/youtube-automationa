@@ -169,6 +169,14 @@ Natural language works too:
 
 15 providers supported. Set `AI_SERVICE` in `.env` to switch at any time.
 
+OpenRouter and Ollama (the wizard defaults) need no extra packages. Providers
+with their own SDK are optional extras - install only what you use:
+
+```bash
+pip install "tube-assistant[openai]"     # also deepseek/xai/together/perplexity/fireworks/azure
+pip install "tube-assistant[anthropic]"  # or: gemini, mistral, groq, cohere, huggingface, all
+```
+
 | Provider | Cost | `AI_SERVICE` value | Key |
 |---|---|---|---|
 | **OpenRouter** | Free tier | `openrouter` | `OPENROUTER_API_KEY` |
