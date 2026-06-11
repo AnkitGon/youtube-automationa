@@ -1,6 +1,30 @@
 import os
 import time
+import random
+import threading
 import requests
+
+# ── sampling context ──────────────────────────────────────────────────────────
+# Senza temperature/seed il modello tende a rigenerare sempre lo stesso testo
+# (titolo e contenuto identici). Ogni chiamata riceve un seed casuale e una
+# temperatura alta così l'output varia. Thread-safe: il bot Telegram gira in
+# un thread separato e non deve condividere il seed con la pipeline.
+_sampling_ctx = threading.local()
+
+
+def _set_sampling(temperature=None, seed=None) -> None:
+    _sampling_ctx.temperature = temperature
+    _sampling_ctx.seed = seed
+
+
+def _temp(default: float = 0.9) -> float:
+    t = getattr(_sampling_ctx, "temperature", None)
+    return default if t is None else t
+
+
+def _seed() -> int:
+    s = getattr(_sampling_ctx, "seed", None)
+    return s if s is not None else random.randint(1, 2_147_483_647)
 
 # ── service routing ───────────────────────────────────────────────────────────
 # Set AI_SERVICE in .env — supported values:
@@ -46,6 +70,7 @@ def _openai_compat(messages: list, max_tokens: int, base_url: str, api_key: str,
     client = OpenAI(api_key=api_key, base_url=base_url)
     resp = client.chat.completions.create(
         model=model, messages=messages, max_tokens=max_tokens,
+        temperature=_temp(), seed=_seed(),
     )
     return resp.choices[0].message.content.strip()
 
@@ -62,7 +87,8 @@ def _openrouter(messages: list, max_tokens: int = 4096) -> str:
             headers={"Authorization": f"Bearer {api_key}",
                      "Content-Type": "application/json",
                      "HTTP-Referer": "tube-assistant"},
-            json={"model": OPENROUTER_MODEL, "messages": messages, "max_tokens": max_tokens},
+            json={"model": OPENROUTER_MODEL, "messages": messages, "max_tokens": max_tokens,
+                  "temperature": _temp(), "seed": _seed()},
             timeout=180,
         )
         if resp.status_code == 429:
@@ -101,7 +127,8 @@ def _anthropic(messages: list, max_tokens: int = 4096) -> str:
         else:
             chat_msgs.append(m)
     client = sdk.Anthropic(api_key=api_key)
-    kwargs = {"model": ANTHROPIC_MODEL, "max_tokens": max_tokens, "messages": chat_msgs}
+    kwargs = {"model": ANTHROPIC_MODEL, "max_tokens": max_tokens, "messages": chat_msgs,
+              "temperature": _temp()}
     if system:
         kwargs["system"] = system
     resp = client.messages.create(**kwargs)
@@ -128,7 +155,8 @@ def _gemini(messages: list, max_tokens: int = 4096) -> str:
         elif m["role"] == "assistant":
             history.append({"role": "model", "parts": [m["content"]]})
     chat = model.start_chat(history=history)
-    resp = chat.send_message(prompt, generation_config={"max_output_tokens": max_tokens})
+    resp = chat.send_message(prompt, generation_config={"max_output_tokens": max_tokens,
+                                                         "temperature": _temp()})
     return resp.text.strip()
 
 
@@ -141,7 +169,8 @@ def _mistral(messages: list, max_tokens: int = 4096) -> str:
     if not api_key:
         raise RuntimeError("MISTRAL_API_KEY missing in .env")
     client = Mistral(api_key=api_key)
-    resp = client.chat.complete(model=MISTRAL_MODEL, messages=messages, max_tokens=max_tokens)
+    resp = client.chat.complete(model=MISTRAL_MODEL, messages=messages, max_tokens=max_tokens,
+                                temperature=_temp(), random_seed=_seed())
     return resp.choices[0].message.content.strip()
 
 
@@ -154,7 +183,8 @@ def _groq(messages: list, max_tokens: int = 4096) -> str:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY missing in .env")
     client = Groq(api_key=api_key)
-    resp = client.chat.completions.create(model=GROQ_MODEL, messages=messages, max_tokens=max_tokens)
+    resp = client.chat.completions.create(model=GROQ_MODEL, messages=messages, max_tokens=max_tokens,
+                                          temperature=_temp(), seed=_seed())
     return resp.choices[0].message.content.strip()
 
 
@@ -181,7 +211,8 @@ def _cohere(messages: list, max_tokens: int = 4096) -> str:
     if not api_key:
         raise RuntimeError("COHERE_API_KEY missing in .env")
     client = cohere.ClientV2(api_key=api_key)
-    resp = client.chat(model=COHERE_MODEL, messages=messages, max_tokens=max_tokens)
+    resp = client.chat(model=COHERE_MODEL, messages=messages, max_tokens=max_tokens,
+                       temperature=_temp(), seed=_seed())
     return resp.message.content[0].text.strip()
 
 
@@ -219,6 +250,7 @@ def _azure_openai(messages: list, max_tokens: int = 4096) -> str:
                          api_version=AZURE_OPENAI_API_VERSION)
     resp = client.chat.completions.create(
         model=AZURE_OPENAI_MODEL, messages=messages, max_tokens=max_tokens,
+        temperature=_temp(), seed=_seed(),
     )
     return resp.choices[0].message.content.strip()
 
@@ -229,7 +261,8 @@ def _ollama_cloud(messages: list, max_tokens: int = 8192) -> str:
         OLLAMA_CLOUD_URL,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json={"model": OLLAMA_CLOUD_MODEL, "messages": messages, "stream": False,
-              "think": False, "options": {"num_predict": max_tokens}},
+              "think": False, "options": {"num_predict": max_tokens,
+                                          "temperature": _temp(), "seed": _seed()}},
         timeout=300,
     )
     resp.raise_for_status()
@@ -242,7 +275,8 @@ def _ollama_local(messages: list, max_tokens: int = 8192) -> str:
     resp = requests.post(
         OLLAMA_LOCAL_URL,
         json={"model": model, "messages": messages, "stream": False,
-              "options": {"num_predict": max_tokens}},
+              "options": {"num_predict": max_tokens,
+                          "temperature": _temp(), "seed": _seed()}},
         timeout=300,
     )
     resp.raise_for_status()

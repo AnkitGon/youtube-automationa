@@ -1,8 +1,49 @@
 
 import json
+import random
 import re
 from datetime import datetime
 from moduli.ai_client import chat_ollama
+
+# Pool di "leve" creative: ad ogni run ne peschiamo una a caso per spingere il
+# modello fuori dal solito titolo/argomento. Senza questo l'LLM converge sempre
+# sullo stesso tema (es. "il futuro dell'AI") e sullo stesso titolo.
+_ANGLES = [
+    "a surprising real-world consequence",
+    "a contrarian take most people get wrong",
+    "a hidden risk nobody talks about",
+    "a behind-the-scenes look at how it actually works",
+    "a head-to-head comparison",
+    "a beginner-friendly explainer of a complex idea",
+    "a near-future prediction with concrete stakes",
+    "a myth-busting deep dive",
+    "an underrated tool or technique",
+    "a story of a spectacular failure and its lesson",
+    "a practical how-to people can use today",
+    "a 'what if' thought experiment",
+]
+_FORMATS = [
+    "listicle (top N)",
+    "single big idea explained",
+    "case study",
+    "tutorial / walkthrough",
+    "news reaction / analysis",
+    "myth vs reality",
+    "timeline / evolution story",
+    "versus comparison",
+]
+_SUBTHEMES = [
+    "AI models and capabilities",
+    "AI tools for creators and productivity",
+    "robotics and automation",
+    "AI ethics, safety and regulation",
+    "AI in everyday consumer tech",
+    "the business and money behind AI",
+    "AI hardware and chips",
+    "open-source vs closed AI",
+    "AI and jobs / the future of work",
+    "breakthrough research and science",
+]
 
 TOPIC_PROMPT = """You are a viral YouTube content strategist for a tech/AI channel.
 
@@ -10,9 +51,15 @@ Today's date: {current_date}
 Current strategy guidance: {strategy_notes}
 Topic focus: {topic_focus}
 {trending_block}
+For THIS video, lean into:
+- Sub-theme to explore: {subtheme}
+- Creative angle: {angle}
+- Content format: {fmt}
+
 Generate ONE trending topic for a YouTube video about AI or technology.
 Base your suggestion on what is relevant and trending as of {current_date}.
 Use the trending news above as inspiration for a timely, high-interest angle — not a copy.
+Make it clearly DIFFERENT from the recent topics below — new subject, new framing.
 Avoid repeating these recent topics: {recent_topics}
 Reply with ONLY the topic as a short phrase (3-7 words). No explanation, no punctuation."""
 
@@ -89,16 +136,35 @@ def _fetch_trending() -> str:
 def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
     strategy = strategy or {}
     trending = _fetch_trending()
+    angle = random.choice(_ANGLES)
+    fmt = random.choice(_FORMATS)
+    subtheme = random.choice(_SUBTHEMES)
+    print(f"[cervello] Leve creative — tema:{subtheme} | angolo:{angle} | formato:{fmt}", flush=True)
     prompt = TOPIC_PROMPT.format(
         current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         strategy_notes=strategy.get("notes", "Standard approach"),
         topic_focus=strategy.get("topic_focus", "AI and technology trends"),
         recent_topics=", ".join(recent_topics or []) or "none",
         trending_block=trending,
+        angle=angle,
+        fmt=fmt,
+        subtheme=subtheme,
     )
-    topic = chat_ollama(prompt, max_tokens=64).strip()
-    # il modello a volte avvolge il topic in virgolette nonostante il prompt
-    return topic.strip('"“”‘’\' ')
+    recent_norm = {t.strip().lower() for t in (recent_topics or [])}
+
+    def _clean(t: str) -> str:
+        # il modello a volte avvolge il topic in virgolette nonostante il prompt
+        return t.strip().strip('"“”‘’\' ')
+
+    topic = _clean(chat_ollama(prompt, max_tokens=64))
+    # se ricasca su un topic recente, ritenta una volta con nuove leve casuali
+    if topic.lower() in recent_norm:
+        print(f"[cervello] Topic duplicato '{topic}', ritento con altre leve", flush=True)
+        retry = prompt.replace(angle, random.choice(_ANGLES)).replace(subtheme, random.choice(_SUBTHEMES))
+        alt = _clean(chat_ollama(retry, max_tokens=64))
+        if alt and alt.lower() not in recent_norm:
+            topic = alt
+    return topic
 
 
 def genera_contenuto(topic: str, strategy: dict = None) -> dict:
