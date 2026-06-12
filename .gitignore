@@ -19,6 +19,10 @@ logs/
 .setup_done
 _creds_setup_tmp.json
 
+# demo build sources (regenerate locally)
+presentazione_build/
+frames/
+
 # python
 __pycache__/
 *.pyc
