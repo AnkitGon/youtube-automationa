@@ -17,11 +17,11 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/promo.gif" alt="TubeAssistant demo" width="820"/>
+  <img src="https://raw.githubusercontent.com/metiu1/tube-assistant/master/presentazione.gif" alt="TubeAssistant demo" width="820"/>
 </p>
 
 <p align="center">
-  <em><a href="https://github.com/metiu1/tube-assistant/raw/master/promo_video.mp4">▶ Watch the 40-second demo with sound</a></em>
+  <em><a href="https://github.com/metiu1/tube-assistant/raw/master/presentazione_tube_assistant.mp4">▶ Watch the full demo with sound</a></em>
 </p>
 
 ---
