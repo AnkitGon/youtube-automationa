@@ -40,8 +40,12 @@ def run_checks(workspace: str | Path = ".") -> list[dict]:
     add("credentials.json", (ws / "credentials.json").exists(), "OAuth YouTube")
     add("token.json", (ws / "token.json").exists(), "token esistente" if (ws / "token.json").exists() else "verra creato al primo login")
 
-    ffmpeg = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
-    add("ffmpeg", bool(ffmpeg), ffmpeg or "non trovato in PATH/FFMPEG_PATH")
+    try:
+        from moduli.ffmpeg_utils import ffmpeg_path
+        ffmpeg = ffmpeg_path()
+    except FileNotFoundError:
+        ffmpeg = None
+    add("ffmpeg", bool(ffmpeg), ffmpeg or "non trovato in PATH/FFMPEG_PATH/bundle MoviePy")
 
     for key in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "PEXELS_API_KEY", "AI_SERVICE"):
         add(key, _has_env(key), "configurato" if _has_env(key) else "mancante")

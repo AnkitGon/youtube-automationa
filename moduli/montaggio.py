@@ -7,7 +7,10 @@ import platform
 import tempfile
 import re
 
-from moduli.ffmpeg_utils import ffmpeg_path as _ffmpeg, ffprobe_path as _ffprobe
+from moduli.ffmpeg_utils import ffmpeg_path as _ffmpeg, media_duration
+
+# compat: agent.py importa ancora _media_duration
+_media_duration = media_duration
 
 import moviepy.config as _mpy_cfg
 try:
@@ -19,6 +22,29 @@ except FileNotFoundError:
 
 SEGMENT_DURATION = 5.0
 
+
+def resolve_segment_duration(strategy: dict | None = None, pref: dict | None = None) -> float:
+    """Durata segmenti clip da strategia analytics o preferenze utente."""
+    pacing = ""
+    if strategy:
+        pacing = str(strategy.get("pacing", "")).lower()
+    if not pacing and pref:
+        pacing = str(pref.get("ritmo", "")).lower()
+    mapping = {
+        "slow": 7.0, "lento": 7.0,
+        "medium": 5.0, "medio": 5.0,
+        "fast": 3.5, "veloce": 3.5,
+    }
+    return mapping.get(pacing, SEGMENT_DURATION)
+
+
+def _segment_duration_for_run(strategy: dict | None = None) -> float:
+    try:
+        from moduli.preferenze import carica
+        pref = carica()
+    except Exception:
+        pref = {}
+    return resolve_segment_duration(strategy, pref)
 
 def _build_clip_sequence(clip_files: list, n_segments: int) -> list:
     """Assegna a ogni segmento una clip distinta. Ogni clip e' usata una sola
@@ -102,6 +128,26 @@ def _detect_gpu_codec() -> str:
     _GPU_CODEC = "libx264"
     print(f"[montaggio] Nessuna GPU compatibile — uso CPU (libx264)", flush=True)
     return _GPU_CODEC
+
+
+def _use_ffmpeg_render() -> bool:
+    """Percorso FFmpeg: trim+scale per segmento (veloce su CPU).
+    MoviePy su CPU riconverte ogni clip intera + re-render finale → ore senza log."""
+    mode = USE_FFMPEG_RENDER
+    if mode in {"1", "true", "yes", "on"}:
+        return True
+    if mode in {"0", "false", "no", "off"}:
+        return False
+    if _PI_LIMITED:
+        return True
+    # auto su desktop: senza encoder GPU il percorso MoviePy è impraticabile
+    return _detect_gpu_codec() == "libx264"
+
+
+def _effective_x264_preset() -> str:
+    if os.environ.get("X264_PRESET"):
+        return X264_PRESET
+    return "ultrafast" if _detect_gpu_codec() == "libx264" else X264_PRESET
 BG_MUSIC_PATH = "assets/background.mp3"
 BG_MUSIC_DIR = "assets/music"
 BG_MUSIC_VOLUME = 0.1
@@ -144,6 +190,10 @@ def _resize_to_target(src: str) -> str:
     dst = f"{root}{target_suffix}{ext}"
     if os.path.exists(dst):
         return dst
+    print(
+        f"[montaggio] Conversione clip → {OUTPUT_W}x{OUTPUT_H}: {os.path.basename(src)}",
+        flush=True,
+    )
     codec = _detect_gpu_codec()
     if codec == "h264_nvenc":
         cmd = [_ffmpeg(), '-y', '-hwaccel', 'cuda', '-i', src,
@@ -156,7 +206,7 @@ def _resize_to_target(src: str) -> str:
     else:
         cmd = [_ffmpeg(), '-y', '-i', src,
                '-vf', f'scale={OUTPUT_W}:{OUTPUT_H}:force_original_aspect_ratio=disable',
-               '-c:v', 'libx264', '-preset', X264_PRESET, '-crf', str(X264_CRF),
+               '-c:v', 'libx264', '-preset', _effective_x264_preset(), '-crf', str(X264_CRF),
                '-threads', str(FFMPEG_THREADS), '-an', dst]
     subprocess.run(cmd, check=True, capture_output=True)
     # elimina originale — teniamo solo il 1080p convertito
@@ -167,18 +217,6 @@ def _resize_to_target(src: str) -> str:
     return dst
 
 
-def _media_duration(path: str) -> float:
-    cmd = [
-        _ffprobe(),
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        path,
-    ]
-    out = subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
-    return max(float(out or 0), 0.01)
-
-
 def _filtra_clip_leggibili(clip_files: list) -> tuple[list, dict]:
     """Scarta clip mancanti o illeggibili (es. cancellate dalla pulizia cache o
     download troncati) invece di far crashare il render. Ritorna i file validi
@@ -186,7 +224,7 @@ def _filtra_clip_leggibili(clip_files: list) -> tuple[list, dict]:
     validi, durate = [], {}
     for p in dict.fromkeys(p for p in clip_files if p):
         try:
-            durate[p] = _media_duration(p)
+            durate[p] = media_duration(p)
             validi.append(p)
         except (subprocess.CalledProcessError, OSError, ValueError):
             print(f"[montaggio] clip illeggibile o mancante, salto: {p}", flush=True)
@@ -294,7 +332,8 @@ def _score_sentence(sentence: str) -> int:
     return score
 
 
-def _select_key_captions(script: str, total_duration: float, n_segments: int) -> dict[int, str]:
+def _select_key_captions(script: str, total_duration: float, n_segments: int,
+                         segment_duration: float = SEGMENT_DURATION) -> dict[int, str]:
     if not VIDEO_CAPTIONS:
         return {}
     sentences = _split_sentences(script)
@@ -321,7 +360,7 @@ def _select_key_captions(script: str, total_duration: float, n_segments: int) ->
 
 def _render_segment_ffmpeg(src: str, dst: str, offset: float, duration: float, caption: str | None = None, src_duration: float | None = None) -> None:
     if src_duration is None:
-        src_duration = _media_duration(src)
+        src_duration = media_duration(src)
     vf = _caption_filter(caption)
     if src_duration < duration:
         cmd = [_ffmpeg(), "-y", "-stream_loop", "-1", "-i", src, "-t", f"{duration:.3f}"]
@@ -331,7 +370,7 @@ def _render_segment_ffmpeg(src: str, dst: str, offset: float, duration: float, c
         "-vf", vf,
         "-an",
         "-c:v", "libx264",
-        "-preset", X264_PRESET,
+        "-preset", _effective_x264_preset(),
         "-crf", str(X264_CRF),
         "-threads", str(FFMPEG_THREADS),
         "-movflags", "+faststart",
@@ -378,11 +417,41 @@ def _mux_audio_ffmpeg(video_path: str, audio_path: str, output_path: str, music_
         raise RuntimeError(f"ffmpeg mux failed:\n{result.stderr[-2000:]}")
 
 
-def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, output_path: str, mood: str = None, on_progress=None, custom_music: str = None, captions_text: str = None) -> None:
+def _build_clip_sequence_aligned(
+    clip_paths: dict,
+    segment_keywords: list[str],
+    n_segments: int,
+) -> list[str]:
+    """Assign clips per narration segment using keyword-specific pools."""
+    if not segment_keywords:
+        return _build_clip_sequence(list(clip_paths.values()), n_segments)
+
+    pools: dict[str, list[str]] = {}
+    for key, path in clip_paths.items():
+        base = key.split("#")[0] if "#" in key else key
+        pools.setdefault(base.lower(), []).append(path)
+
+    seq = []
+    last = None
+    for i in range(n_segments):
+        kw = segment_keywords[min(i, len(segment_keywords) - 1)]
+        pool = pools.get(kw.lower(), []) or list(dict.fromkeys(clip_paths.values()))
+        if not pool:
+            pool = list(dict.fromkeys(clip_paths.values()))
+        pick = pool[i % len(pool)]
+        if pick == last and len(pool) > 1:
+            pick = pool[(i + 1) % len(pool)]
+        seq.append(pick)
+        last = pick
+    return seq
+
+
+def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, output_path: str, mood: str = None, on_progress=None, custom_music: str = None, captions_text: str = None, strategy: dict = None, visual_segments: list | None = None) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-    total_duration = _media_duration(audio_path)
-    n_segments = int(total_duration / SEGMENT_DURATION) + 1
-    captions = _select_key_captions(captions_text or "", total_duration, n_segments)
+    seg_len = _segment_duration_for_run(strategy)
+    total_duration = media_duration(audio_path)
+    n_segments = int(total_duration / seg_len) + 1
+    captions = _select_key_captions(captions_text or "", total_duration, n_segments, seg_len)
     music_path = custom_music if custom_music and os.path.exists(custom_music) else _pick_music(mood)
     if music_path:
         print(f"[montaggio] BG music: {music_path} (mood={mood})", flush=True)
@@ -398,31 +467,38 @@ def _monta_video_ffmpeg(audio_path: str, keywords: list, clip_paths: dict, outpu
     if not keywords:
         raise RuntimeError("montaggio: nessuna keyword fornita — impossibile selezionare clip")
 
-    clip_files, durate = _filtra_clip_leggibili([clip_paths[k] for k in keywords])
+    clip_files, durate = _filtra_clip_leggibili([clip_paths[k] for k in keywords if k in clip_paths])
+    if not clip_files:
+        clip_files, durate = _filtra_clip_leggibili(list(clip_paths.values()))
     if not clip_files:
         raise RuntimeError(
-            "montaggio: nessuna clip leggibile — la cache e' stata svuotata o i "
-            "download sono corrotti. Rilancia la pipeline con /forza."
+            "montaggio: no readable clips — cache may be empty. Re-run pipeline with /forza."
         )
-    clip_sequence = _build_clip_sequence(clip_files, n_segments)
+    seg_kws = [s.get("keyword") for s in (visual_segments or []) if s.get("keyword")]
+    if seg_kws:
+        clip_sequence = _build_clip_sequence_aligned(clip_paths, seg_kws, n_segments)
+        print(f"[montaggio] segment-aligned visuals ({len(seg_kws)} beats)", flush=True)
+    else:
+        clip_sequence = _build_clip_sequence(clip_files, n_segments)
+    print(f"[montaggio] {n_segments} segmenti da {len(set(clip_sequence))} clip uniche", flush=True)
     with tempfile.TemporaryDirectory(prefix="render_", dir=os.path.dirname(output_path) or None) as tmpdir:
         segment_paths = []
         for i in range(n_segments):
-            seg_start = i * SEGMENT_DURATION
+            seg_start = i * seg_len
             remaining = total_duration - seg_start
             if remaining <= 0:
                 break
-            seg_dur = min(SEGMENT_DURATION, remaining)
+            seg_dur = min(seg_len, remaining)
             clip_path = clip_sequence[i]
             seg_path = os.path.join(tmpdir, f"seg_{i:04d}.mp4")
+            if i == 0 or (i + 1) % max(1, n_segments // 10) == 0 or i + 1 == n_segments:
+                print(f"[montaggio] Segmento {i + 1}/{n_segments}...", flush=True)
             _render_segment_ffmpeg(clip_path, seg_path, seg_start, seg_dur, captions.get(i), durate.get(clip_path))
             segment_paths.append(seg_path)
 
             pct = int((i + 1) / n_segments * 80)
-            if pct % 10 == 0:
-                print(f"[montaggio] Segmenti: {pct}%", flush=True)
-                if on_progress:
-                    on_progress(pct, "calcolo in corso")
+            if on_progress:
+                on_progress(pct, f"segmento {i + 1}/{n_segments}")
 
         list_path = os.path.join(tmpdir, "segments.txt")
         with open(list_path, "w", encoding="utf-8") as f:
@@ -487,11 +563,12 @@ class _ProgressLogger(ProgressBarLogger):
 
 
 def _overlay_captions_moviepy(video, captions_text: str | None,
-                              total_duration: float, n_segments: int):
+                              total_duration: float, n_segments: int,
+                              segment_duration: float = SEGMENT_DURATION):
     """Sovrappone i testi chiave anche nel percorso MoviePy (prima li
     disegnava solo il render ffmpeg low-power). Best-effort: qualsiasi
     problema con font/TextClip non deve far fallire il render."""
-    captions = _select_key_captions(captions_text or "", total_duration, n_segments)
+    captions = _select_key_captions(captions_text or "", total_duration, n_segments, segment_duration)
     if not captions:
         return video
     font = _caption_font_path()
@@ -502,8 +579,8 @@ def _overlay_captions_moviepy(video, captions_text: str | None,
         from moviepy import CompositeVideoClip, TextClip
         overlays = []
         for idx, caption in captions.items():
-            start = idx * SEGMENT_DURATION
-            dur = min(SEGMENT_DURATION, total_duration - start)
+            start = idx * segment_duration
+            dur = min(segment_duration, total_duration - start)
             if dur <= 0:
                 continue
             txt = TextClip(
@@ -529,33 +606,40 @@ def _overlay_captions_moviepy(video, captions_text: str | None,
         return video
 
 
-def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: str, mood: str = None, on_progress=None, custom_music: str = None, captions_text: str = None) -> None:
-    if _FFMPEG_ONLY:
-        _monta_video_ffmpeg(audio_path, keywords, clip_paths, output_path, mood, on_progress, custom_music, captions_text)
+def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: str, mood: str = None, on_progress=None, custom_music: str = None, captions_text: str = None, strategy: dict = None, visual_segments: list | None = None) -> None:
+    if _use_ffmpeg_render():
+        print("[montaggio] Percorso FFmpeg (per-segmento, ottimizzato CPU)", flush=True)
+        _monta_video_ffmpeg(
+            audio_path, keywords, clip_paths, output_path, mood, on_progress,
+            custom_music, captions_text, strategy, visual_segments,
+        )
         return
 
     from moviepy import AudioFileClip, CompositeAudioClip, concatenate_videoclips, concatenate_audioclips
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    seg_len = _segment_duration_for_run(strategy)
 
     narration = AudioFileClip(audio_path)
     total_duration = narration.duration
 
-    n_segments = int(total_duration / SEGMENT_DURATION) + 1
+    n_segments = int(total_duration / seg_len) + 1
     segments = []
 
-    clip_files, _ = _filtra_clip_leggibili([clip_paths[k] for k in keywords])
+    clip_files, _ = _filtra_clip_leggibili([clip_paths[k] for k in keywords if k in clip_paths])
     if not clip_files:
-        raise RuntimeError(
-            "montaggio: nessuna clip leggibile — la cache e' stata svuotata o i "
-            "download sono corrotti. Rilancia la pipeline con /forza."
-        )
-    clip_sequence = _build_clip_sequence(clip_files, n_segments)
+        clip_files, _ = _filtra_clip_leggibili(list(clip_paths.values()))
+    seg_kws = [s.get("keyword") for s in (visual_segments or []) if s.get("keyword")]
+    if seg_kws:
+        clip_sequence = _build_clip_sequence_aligned(clip_paths, seg_kws, n_segments)
+    else:
+        clip_sequence = _build_clip_sequence(clip_files, n_segments)
+    print(f"[montaggio] MoviePy — {n_segments} segmenti (GPU)", flush=True)
     for i in range(n_segments):
-        seg_start = i * SEGMENT_DURATION
+        seg_start = i * seg_len
         remaining = total_duration - seg_start
         if remaining <= 0:
             break
-        seg_dur = min(SEGMENT_DURATION, remaining)
+        seg_dur = min(seg_len, remaining)
 
         clip_path = clip_sequence[i]
 
@@ -565,7 +649,7 @@ def monta_video(audio_path: str, keywords: list, clip_paths: dict, output_path: 
     if not segments:
         raise RuntimeError("montaggio: nessun segmento video creato — audio troppo corto?")
     video = concatenate_videoclips(segments, method="compose")
-    video = _overlay_captions_moviepy(video, captions_text, total_duration, n_segments)
+    video = _overlay_captions_moviepy(video, captions_text, total_duration, n_segments, seg_len)
 
     audio_tracks = [narration]
 

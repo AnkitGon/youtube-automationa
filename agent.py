@@ -74,9 +74,10 @@ from moduli.audio import genera_audio
 from moduli.asset import scarica_clips
 from moduli.montaggio import monta_video
 from moduli.thumbnail import genera_thumbnail
-from moduli.pubblica import pubblica_video, calcola_publish_slots
-from moduli.analytics import leggi_performance
-from moduli.strategia import calcola_strategia
+from moduli.pubblica import pubblica_video, calcola_publish_slots, resolve_publish_schedule
+from moduli.publish_scheduler import log_schedule_decision
+from moduli.analytics_cache import get_channel_performance
+from moduli.strategia import calcola_strategia, ANALYTICS_UNAVAILABLE_NOTE
 from moduli.manutenzione import (
     assicura_spazio, pulisci_cache, pulisci_temp_render, spazio_libero_gb,
 )
@@ -211,22 +212,9 @@ def _increment_runs_today(state: dict) -> None:
 
 
 def _get_trigger_hours(state: dict) -> list[int]:
-    """Return sorted list of hours when pipeline should run today.
-
-    Priorità: trigger espliciti > orari di pubblicazione (auto o manuali,
-    produzione TRIGGER_LEAD_HOURS prima) > default.
-    """
-    if state.get("trigger_hours_utc"):
-        hours = state["trigger_hours_utc"]
-    elif state.get("auto_scheduling") and state.get("best_hours_utc"):
-        hours = [(h - TRIGGER_LEAD_HOURS) % 24 for h in state["best_hours_utc"]]
-    elif state.get("publish_hours_utc"):
-        hours = [(h - TRIGGER_LEAD_HOURS) % 24 for h in state["publish_hours_utc"]]
-    else:
-        hours = DEFAULT_TRIGGER_HOURS
-    n = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
-    # use only the first N hours
-    return sorted(hours)[:n]
+    """Return sorted UTC hours when the pipeline should run (not publish time)."""
+    from moduli.publish_scheduler import resolve_pipeline_trigger_hours
+    return resolve_pipeline_trigger_hours(state)
 
 
 def _should_run(state: dict, now: datetime, last_attempt: tuple | None = None) -> bool:
@@ -243,7 +231,7 @@ def _should_run(state: dict, now: datetime, last_attempt: tuple | None = None) -
 
 
 def _log(msg: str) -> None:
-    ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+    ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
     line = f"[{ts}] {msg}"
     encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
     print(line.encode(encoding, errors="replace").decode(encoding), flush=True)
@@ -272,7 +260,7 @@ def _save_checkpoint(cp: dict) -> None:
             json.dump(cp, f, indent=2, ensure_ascii=False)
         os.replace(tmp, CHECKPOINT_PATH)
     except OSError as e:
-        _log(f"  ! Checkpoint non salvato: {e}")
+        _log(f"  ! Checkpoint not saved: {e}")
 
 
 def _clear_checkpoint() -> None:
@@ -294,11 +282,11 @@ def _scarica_tutte_le_clips(keywords: list) -> dict:
         target_clips = max(len(keywords), 20)
     # quante clip scaricare per keyword per coprire i segmenti (max 5 = limite Pexels per_page utile)
     per_kw = max(1, min(5, -(-target_clips // max(1, len(keywords)))))
-    _log(f"  → Servono ~{target_clips} clip distinte → {per_kw} per keyword")
+    _log(f"  -> Need ~{target_clips} unique clips -> {per_kw} per keyword")
 
     seen = set()
     for i, kw in enumerate(keywords):
-        _log(f"  → [{i+1}/{len(keywords)}] Cerco: {kw} (x{per_kw})")
+        _log(f"  -> [{i+1}/{len(keywords)}] Searching: {kw} (x{per_kw})")
         try:
             paths = scarica_clips(kw, max_n=per_kw)
             nuove = 0
@@ -308,49 +296,141 @@ def _scarica_tutte_le_clips(keywords: list) -> dict:
                 seen.add(p)
                 clip_paths[f"{kw}#{nuove}"] = p
                 nuove += 1
-            _log(f"     ✓ {nuove} clip distinte")
+            _log(f"     OK {nuove} unique clips")
         except Exception as e:
-            _log(f"     ✗ Saltata: {e}")
+            _log(f"     SKIP: {e}")
 
-    _log(f"  → {len(clip_paths)} clip distinte scaricate (target {target_clips})")
+    _log(f"  -> {len(clip_paths)} unique clips downloaded (target {target_clips})")
     return clip_paths
 
 
 def run_pipeline(state: dict, dry_run: bool = False) -> None:
     os.makedirs("output", exist_ok=True)
-    _log("━━━ PIPELINE AVVIATA ━━━")
+    _log("=== PIPELINE STARTED ===")
 
     # ── ANALYTICS ──────────────────────────────────────────────────────────
     _segna_step("analytics")
-    _log("📊 [1/7] Analytics — lettura performance canale...")
-    notify_step("strategy", "Analizzo le performance del canale...")
+    _log("[1/7] Analytics — reading channel performance...")
+    notify_step("strategy", "Analyzing channel performance...")
+    analytics_status = "ok"
+    performance: list[dict] = []
+    analytics_source = "none"
     try:
-        performance = leggi_performance(n_video=10)
-        _log(f"  → {len(performance)} video analizzati")
+        performance, analytics_source = get_channel_performance(n_video=10, force=False)
+        _log(f"  -> {len(performance)} videos analyzed (source: {analytics_source})")
+        # Audience activity for deterministic publish scheduler (separate from strategy LLM)
+        audience_activity = {}
+        audience_geography = {}
+        audience_bundle = {}
+        try:
+            from moduli.analytics import leggi_channel_audience_bundle, leggi_audience_activity, leggi_audience_geography
+            audience_activity = leggi_audience_activity()
+            audience_geography = leggi_audience_geography()
+            audience_bundle = leggi_channel_audience_bundle()
+            if audience_activity.get("has_data"):
+                _log(
+                    f"  -> Viewer activity: {audience_activity.get('total_views', 0)} views "
+                    f"across {len(audience_activity.get('buckets') or [])} hour buckets"
+                )
+            if audience_geography.get("has_data"):
+                top = (audience_geography.get("countries") or [{}])[0]
+                _log(f"  -> Top audience country: {top.get('country', '?')} ({top.get('views', 0)} views)")
+        except Exception as e:
+            _log(f"  -> Audience scheduling data skipped: {e}")
+        fresh_sched = _load_state()
+        fresh_sched["_scheduler_cache"] = {
+            "activity": audience_activity,
+            "geography": audience_geography,
+            "audience_bundle": audience_bundle,
+            "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        _save_state(fresh_sched)
         if performance:
             for v in performance:
                 _log(f"     · {v['title'][:50]} — {v['views']} views, {v['likes']} likes")
-            notify_analytics(performance)
+            try:
+                notify_analytics(performance)
+            except Exception as e:
+                _log(f"  -> Analytics notification skipped: {e}")
             if state.get("auto_scheduling"):
-                _update_best_hours(state, performance)
+                try:
+                    _update_best_hours(state, performance)
+                except Exception as e:
+                    _log(f"  -> Auto-scheduling skipped: {e}")
         else:
-            _log("  → Nessun video precedente (canale nuovo)")
+            analytics_status = "empty"
+            _log(f"  → {ANALYTICS_UNAVAILABLE_NOTE}")
     except Exception as e:
-        _log(f"  → Skipped: {e}")
+        analytics_status = "error"
+        _log(f"  -> Analytics unavailable: {e}")
+        _log(f"  → {ANALYTICS_UNAVAILABLE_NOTE}")
         performance = []
 
-    strategy = calcola_strategia(performance)
+    state = _load_state()
+    strategy = calcola_strategia(performance, state=state)
+    try:
+        from moduli.channel_learning import describe_learning_stage, run_daily_learning_update
+        from moduli.publish_optimization import build_publish_strategy
+        from moduli.performance import carica_profili, sync_profiles
+
+        profiles = carica_profili()
+        if performance and not profiles:
+            profiles = sync_profiles(performance)
+        insights = strategy.get("_insights") or {}
+        learning = run_daily_learning_update(profiles, insights, strategy, state)
+        pub_strategy = build_publish_strategy(profiles, state=state)
+        fresh_timing = _load_state()
+        fresh_timing["publish_timing"] = pub_strategy
+        if pub_strategy.get("best_hours_utc"):
+            fresh_timing["best_hours_utc"] = pub_strategy["best_hours_utc"]
+        _save_state(fresh_timing)
+        vc = len(performance) if performance else int(insights.get("video_count") or 0)
+        _log(f"  -> Learning stage: {describe_learning_stage(vc)}")
+        if pub_strategy.get("reason"):
+            _log(f"  -> Publish timing: {pub_strategy.get('reason')[:120]}")
+    except Exception as e:
+        _log(f"  -> Learning update skipped: {e}")
+        try:
+            from moduli.channel_learning import describe_learning_stage
+            vc = len(performance) if performance else 0
+            _log(f"  -> Learning stage: {describe_learning_stage(vc)}")
+        except Exception:
+            pass
+    # titoli sotto-performanti → evitati in topic/content
+    if performance:
+        from moduli.performance import score_video
+        scored = sorted(performance, key=score_video)
+        strategy["_recent_underperformers"] = [
+            v.get("title", "")[:60] for v in scored[:2] if v.get("title")
+        ]
+    fresh = _load_state()
+    fresh["last_strategy"] = strategy
+    if strategy.get("structured"):
+        fresh["strategy_structured"] = strategy["structured"]
+    fresh["last_analytics_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    fresh["last_analytics_status"] = analytics_status
+    fresh["last_analytics_source"] = analytics_source
+    _save_state(fresh)
     _check_abort()
-    _log(f"  → Strategia: {strategy.get('notes', '')}")
+    notes = strategy.get("notes", "")
+    if isinstance(notes, list):
+        notes = "; ".join(str(n) for n in notes)
+    _log(f"  -> Strategy: {str(notes)[:200]}")
+    structured = strategy.get("structured") or {}
+    if structured:
+        from moduli.strategy_output import structured_summary_text
+        for line in structured_summary_text(structured).split("\n")[:4]:
+            if line.strip():
+                _log(f"  → {line.strip()}")
 
     # ── TOPIC & CONTENUTO ───────────────────────────────────────────────────
     _segna_step("contenuto")
-    _log("🧠 [2/7] Topic & Contenuto — generazione script...")
+    _log("[2/7] Topic & script — generating content...")
     cp = _load_checkpoint()
     if "content" in cp.get("steps", []) and cp.get("content"):
         topic = cp.get("topic", "")
         content = cp["content"]
-        _log(f"  → Ripreso da checkpoint: {topic}")
+        _log(f"  -> Resumed from checkpoint: {topic}")
     else:
         cp = {"steps": []}
         queue = state.get("topic_queue", [])
@@ -366,50 +446,73 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
                 fresh_queue.remove(topic)
                 fresh["topic_queue"] = fresh_queue
                 _save_state(fresh)
-            _log(f"  → Topic dalla coda: {topic}")
+            from moduli.topic_history import assert_unique_topic, TopicDuplicateError
+            try:
+                topic = assert_unique_topic(topic)
+                from moduli.topic_diversity import decide_mode, record_mode
+                strategy["_topic_diversity_mode"] = decide_mode(strategy)
+                record_mode(strategy["_topic_diversity_mode"], topic)
+                _log(f"  -> Topic from queue: {topic}")
+            except TopicDuplicateError as e:
+                _log(f"  -> Queue topic is a duplicate ({e.matched}), generating a new one...")
+                topic = genera_topic(
+                    strategy=strategy,
+                    recent_topics=state.get("recent_topics", []),
+                    extra_banned=[topic],
+                )
+                _log(f"  -> Topic generated: {topic}")
         else:
-            _log("  → Coda vuota, genero topic con AI...")
+            _log("  -> Queue empty, generating topic with AI...")
             topic = genera_topic(strategy=strategy, recent_topics=state.get("recent_topics", []))
-            _log(f"  → Topic generato: {topic}")
+            _log(f"  -> Topic generated: {topic}")
 
         notify_start(topic)
-        _log("  → Generazione script in corso (può richiedere 30-60s)...")
+        _log("  -> Generating script (may take 30-60s)...")
         content = genera_contenuto(topic, strategy=strategy)
+        exp = (content.get("_strategy_meta") or {}).get("experimentation") or {}
+        if exp.get("label"):
+            from moduli.experimentation import format_classification
+            preview = format_classification({
+                "video_number": "?",
+                "mode": exp.get("mode"),
+                "label": exp.get("label"),
+            })
+            _log(f"  -> Video strategy: {preview}")
         cp.update({"topic": topic, "content": content, "steps": ["content"]})
         _save_checkpoint(cp)
-    _log(f"  → Titolo: {content['title']}")
-    _log(f"  → Tag: {', '.join(content.get('tags', [])[:5])}...")
-    _log(f"  → Keyword video: {', '.join(content.get('video_keywords', [])[:4])}...")
+    _log(f"  -> Title: {content['title']}")
+    _log(f"  -> Tags: {', '.join(content.get('tags', [])[:5])}...")
+    _log(f"  -> Clip keywords: {', '.join(content.get('video_keywords', [])[:4])}...")
     script_words = len(content.get('script', '').split())
     _check_abort()
-    _log(f"  → Script: ~{script_words} parole")
+    _log(f"  -> Script: ~{script_words} words")
 
     # ── AUDIO ───────────────────────────────────────────────────────────────
     _segna_step("audio")
-    _log("🎙️ [3/7] Audio — sintesi vocale con Edge TTS...")
+    _log("[3/7] Audio — Edge TTS synthesis...")
     if "audio" in cp["steps"] and os.path.exists(AUDIO_PATH):
-        _log(f"  → Ripreso da checkpoint: {AUDIO_PATH}")
+        _log(f"  -> Resumed from checkpoint: {AUDIO_PATH}")
     else:
-        notify_step("audio", f"Sintetizzo audio: <i>{_h(content['title'])}</i>")
+        notify_step("audio", f"Synthesizing audio: <i>{_h(content['title'])}</i>")
         genera_audio(content["script"], AUDIO_PATH)
         cp["steps"].append("audio")
         _save_checkpoint(cp)
     size = os.path.getsize(AUDIO_PATH) // 1024
     _check_abort()
-    _log(f"  → Audio salvato: {AUDIO_PATH} ({size} KB)")
+    _log(f"  -> Audio saved: {AUDIO_PATH} ({size} KB)")
 
     # ── CLIP ────────────────────────────────────────────────────────────────
     _segna_step("clips")
-    _log("🎞️ [4/7] Clip — scarico video da Pexels...")
+    _log("[4/7] Clips — downloading stock video from Pexels...")
     keywords = content.get("video_keywords", [])
     clip_paths = {}
     if "clips" in cp["steps"] and cp.get("clip_paths"):
         cached = {k: p for k, p in cp["clip_paths"].items() if os.path.exists(p)}
         if cached:
             clip_paths = cached
-            _log(f"  → Ripreso da checkpoint: {len(clip_paths)} clip")
+            _log(f"  -> Resumed from checkpoint: {len(clip_paths)} clips")
     if not clip_paths:
-        notify_step("clips", "Scarico clip video da Pexels...")
+        notify_step("clips", "Downloading stock clips from Pexels...")
         clip_paths = _scarica_tutte_le_clips(keywords)
         cp["clip_paths"] = clip_paths
         if "clips" not in cp["steps"]:
@@ -420,17 +523,17 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # le cancellerebbe perche' scaricate per prime → ffprobe crash al render)
     liberati = pulisci_cache(protetti=set(clip_paths.values()))
     if liberati:
-        _log(f"  → Cache potata: {liberati:.0f} MB liberati (tetto {os.environ.get('MAX_CACHE_MB', '2000')} MB)")
+        _log(f"  -> Cache pruned: {liberati:.0f} MB freed (cap {os.environ.get('MAX_CACHE_MB', '2000')} MB)")
     if not clip_paths:
-        msg = "Nessuna clip scaricata — pipeline interrotta"
-        _log(f"  ✗ ERRORE: {msg}")
+        msg = "No clips downloaded — pipeline aborted"
+        _log(f"  ERROR: {msg}")
         notify_error(msg)
         raise RuntimeError(msg)
 
     # ── MONTAGGIO ───────────────────────────────────────────────────────────
     _check_abort()
     _segna_step("montaggio")
-    _log("⚙️ [5/7] Montaggio — rendering video (5-15 min)...")
+    _log("[5/7] Montage — rendering video (5-15 min)...")
     # guardia disco: il render riempie output/ di file temporanei. Se lo spazio
     # e' poco, prova a liberare la cache, altrimenti aborta con messaggio chiaro
     # invece di crashare a meta' rendering (OSError 28: No space left on device).
@@ -441,11 +544,11 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         _log(f"  ✗ {e}")
         notify_error(str(e))
         raise
-    _log(f"  → Spazio disco: {spazio_libero_gb('output'):.1f} GB liberi")
+    _log(f"  -> Disk space: {spazio_libero_gb('output'):.1f} GB free")
     if "montage" in cp["steps"] and os.path.exists(VIDEO_PATH):
-        _log(f"  → Ripreso da checkpoint: {VIDEO_PATH}")
+        _log(f"  -> Resumed from checkpoint: {VIDEO_PATH}")
     else:
-        notify_step("rendering", "Montaggio in corso (5-15 min)...")
+        notify_step("rendering", "Rendering video (5-15 min)...")
 
         # progresso su Telegram a 25/50/75% e in state.json (per /status):
         # senza, durante il render l'utente resta 15 minuti al buio
@@ -463,56 +566,116 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
             mood=content.get("mood"),
             on_progress=_avanzamento,
             captions_text=content.get("script"),
+            strategy=strategy,
+            visual_segments=content.get("visual_segments"),
         )
         cp["steps"].append("montage")
         _save_checkpoint(cp)
     _check_abort()
     size = os.path.getsize(VIDEO_PATH) // (1024 * 1024)
-    _log(f"  → Video salvato: {VIDEO_PATH} ({size} MB)")
+    _log(f"  -> Video saved: {VIDEO_PATH} ({size} MB)")
 
     # ── THUMBNAIL ───────────────────────────────────────────────────────────
     _segna_step("thumbnail")
-    _log("🖼️ [6/7] Thumbnail — generazione con AI...")
+    _log("[6/7] Thumbnail — generating with AI...")
     if "thumbnail" in cp["steps"] and os.path.exists(THUMB_PATH):
-        _log(f"  → Ripresa da checkpoint: {THUMB_PATH}")
+        _log(f"  -> Resumed from checkpoint: {THUMB_PATH}")
     else:
-        notify_step("thumbnail", "Genero la thumbnail con AI...")
+        notify_step("thumbnail", "Generating thumbnail with AI...")
+        meta = content.get("_strategy_meta") or {}
+        thumb_style = meta.get("thumbnail_style") or strategy.get("thumbnail_style")
         genera_thumbnail(
             content["title"], THUMB_PATH,
             mood=content.get("mood"),
+            style=thumb_style,
             thumbnail_description=content.get("thumbnail_description"),
             thumbnail_phrase=content.get("thumbnail_phrase"),
             thumbnail_font_size=content.get("thumbnail_font_size"),
+            strategy=strategy,
         )
         cp["steps"].append("thumbnail")
         _save_checkpoint(cp)
-    _log(f"  → Thumbnail salvata: {THUMB_PATH}")
+    _log(f"  -> Thumbnail saved: {THUMB_PATH}")
 
     # ── UPLOAD ──────────────────────────────────────────────────────────────
     _check_abort()
     _segna_step("upload")
     if dry_run:
         _segna_step("dry_run")
-        _log("DRY RUN: upload saltato. Video e thumbnail sono pronti in output/.")
+        _log("DRY RUN: upload skipped. Video and thumbnail are ready in output/.")
         _pulisci_status_pipeline()
         return
-    _log("📤 [7/7] Upload — caricamento su YouTube...")
+    _log("[7/7] Upload — publishing to YouTube...")
+
+    # Generate subtitles from final narration before upload (quality gate requires them)
+    srt_path = "output/sottotitoli.srt"
+    try:
+        from moduli.montaggio import _media_duration
+        from moduli.sottotitoli import genera_srt
+        genera_srt(content.get("script", ""), _media_duration(AUDIO_PATH), srt_path)
+    except Exception as e:
+        _log(f"  -> Caption generation failed: {e}")
+
+    from moduli.publish_gate import run_pre_publish_gate
+    skip_gate = os.environ.get("SKIP_PUBLISH_GATE", "").lower() in {"1", "true", "yes"}
+    if not skip_gate:
+        gate_ok, gate_errors, gate_warnings = run_pre_publish_gate(
+        content, topic,
+        video_path=VIDEO_PATH,
+        audio_path=AUDIO_PATH,
+        thumb_path=THUMB_PATH,
+        strategy=strategy,
+        srt_path=srt_path,
+        )
+        for w in gate_warnings:
+            _log(f"  -> Quality warning: {w}")
+        if not gate_ok:
+            msg = "Pre-publish quality gate failed: " + "; ".join(gate_errors[:5])
+            _log(f"  ERROR: {msg}")
+            notify_error(msg)
+            raise RuntimeError(msg)
+
+    publish_at = None
+    schedule_decision = None
     if cp.get("video_id"):
-        # upload già riuscito in un run precedente crashato subito dopo:
-        # NON ricaricare lo stesso video (duplicato sul canale)
         video_id = cp["video_id"]
-        publish_label = cp.get("publish_time", "già programmata")
-        _log(f"  → Upload già completato (checkpoint): https://youtu.be/{video_id}")
+        publish_label = cp.get("publish_time", "already scheduled")
+        _log(f"  -> Upload already done (checkpoint): https://youtu.be/{video_id}")
     else:
-        notify_step("upload", "Upload su YouTube in corso...")
+        notify_step("upload", "Uploading to YouTube...")
         run_index = _runs_today(state)
         immediate = bool(state.get("publish_immediately"))
-        publish_at = None if immediate else calcola_publish_slots(state, run_index)
-        publish_label = "immediata" if immediate else publish_at.strftime("%d/%m/%Y %H:%M UTC")
+        schedule_decision = None
+        publish_at = None
+        if not immediate:
+            sched_cache = (_load_state().get("_scheduler_cache") or {})
+            schedule_decision = resolve_publish_schedule(
+                _load_state(),
+                run_index=run_index,
+                activity=sched_cache.get("activity"),
+                geography=sched_cache.get("geography"),
+                video_count=len(performance) if performance else None,
+            )
+            publish_at = schedule_decision.publish_at_utc
+            log_schedule_decision(schedule_decision, log_fn=_log)
+            fresh_sched = _load_state()
+            fresh_sched["last_schedule_decision"] = schedule_decision.to_dict()
+            fresh_sched["publish_timing"] = {
+                **(fresh_sched.get("publish_timing") or {}),
+                **schedule_decision.to_dict(),
+            }
+            _save_state(fresh_sched)
+        publish_label = (
+            "immediate"
+            if immediate
+            else schedule_decision.local_publish_label
+            if schedule_decision
+            else publish_at.strftime("%d/%m/%Y %H:%M UTC")
+        )
         if immediate:
-            _log("  -> Pubblicazione immediata")
+            _log("  -> Publishing immediately")
         else:
-            _log(f"  → Programmato per: {publish_label}")
+            _log(f"  -> Scheduled for: {publish_label}")
         video_id = pubblica_video(
             VIDEO_PATH,
             THUMB_PATH,
@@ -524,32 +687,49 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         cp["video_id"] = video_id
         cp["publish_time"] = publish_label
         _save_checkpoint(cp)
-    _log(f"  → ✓ https://youtu.be/{video_id}")
+    _log(f"  -> OK https://youtu.be/{video_id}")
 
-    # sottotitoli: best-effort, un fallimento qui non deve bloccare la pipeline
+    # Upload captions (already generated for quality gate)
     if "captions" not in cp["steps"]:
         try:
-            from moduli.montaggio import _media_duration
-            from moduli.sottotitoli import genera_srt
             from moduli.pubblica import carica_sottotitoli
             from moduli.preferenze import carica as _carica_pref
-            srt = genera_srt(content.get("script", ""), _media_duration(AUDIO_PATH),
-                             "output/sottotitoli.srt")
-            if srt:
+            if srt_path and os.path.exists(srt_path):
                 lingua = "it" if _carica_pref().get("lingua") == "italian" else "en"
-                carica_sottotitoli(video_id, srt, language=lingua)
+                carica_sottotitoli(video_id, srt_path, language=lingua)
                 cp["steps"].append("captions")
                 _save_checkpoint(cp)
-                _log("  → Sottotitoli caricati")
+                _log("  -> Captions uploaded")
         except Exception as e:
-            _log(f"  → Sottotitoli saltati: {e}")
+            _log(f"  -> Captions skipped: {e}")
+
+    try:
+        from moduli.channel_learning import record_scheduling_decision
+        state_now = _load_state()
+        timing = state_now.get("publish_timing") or {}
+        pub_dt = publish_label
+        record_scheduling_decision(
+            video_id=video_id,
+            scheduled_hour_utc=publish_at.hour if publish_at else datetime.now(timezone.utc).hour,
+            scheduled_day=(publish_at.strftime("%A") if publish_at else datetime.now(timezone.utc).strftime("%A")),
+            predicted_window=timing.get("best_time_window_utc"),
+            topic_source=(content.get("_strategy_meta") or {}).get("topic_source", ""),
+        )
+    except Exception:
+        pass
 
     notify_done(
         title=content["title"],
         video_id=video_id,
         publish_time=publish_label,
         thumb_path=THUMB_PATH,
+        schedule_decision=schedule_decision.to_dict() if schedule_decision else None,
     )
+
+    from moduli.strategia import registra_esito
+    from moduli.topic_history import record_topic
+    registra_esito(video_id, topic, content["title"], strategy, content=content, publish_time=publish_label)
+    record_topic(topic, title=content["title"], video_id=video_id, source="pipeline")
 
     # Ricarica lo state più recente (il bot Telegram può aver scritto durante la pipeline)
     # e applica solo le modifiche prodotte dalla pipeline — evita lost-update.
@@ -568,51 +748,42 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     fresh.pop("pipeline_status", None)
     _save_state(fresh)
     _clear_checkpoint()
-    _log("━━━ PIPELINE COMPLETATA ━━━\n")
+    _log("=== PIPELINE COMPLETE ===\n")
 
 
 def _update_best_hours(state: dict, performance: list) -> None:
-    """Pick best publish hours from analytics data."""
-    # Use top-views hours; fallback to spread across day
-    videos_per_day = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
-    # Smart defaults per slot count — production/morning/evening spread
-    spreads = {
-        1: [20],
-        2: [14, 20],
-        3: [10, 15, 20],
-        4: [9, 13, 17, 21],
-        5: [8, 11, 14, 17, 20],
-    }
-    scored: dict[int, list[float]] = {}
-    for video in performance:
-        hour = video.get("published_hour_utc")
-        if hour is None:
-            continue
-        views = float(video.get("views") or 0)
-        ctr = float(video.get("ctr_percent") or 0)
-        duration = max(float(video.get("duration_seconds") or 1), 1.0)
-        retention = float(video.get("avg_view_duration_seconds") or 0) / duration * 100
-        score = views + (ctr * 25) + (retention * 5)
-        scored.setdefault(int(hour), []).append(score)
+    """Pick best publish hours from analytics — con evidenza e confidenza campione."""
+    from moduli.publish_optimization import recommend_publish_hours
+    from moduli.performance import carica_profili
 
-    if scored:
-        ranked = sorted(
-            ((sum(scores) / len(scores), hour) for hour, scores in scored.items()),
-            reverse=True,
-        )
-        hours = sorted(hour for _, hour in ranked[:videos_per_day])
-        fallback = [h for h in spreads.get(videos_per_day, [20]) if h not in hours]
-        hours = sorted((hours + fallback)[:videos_per_day])
-    else:
-        hours = spreads.get(videos_per_day, [20])
+    videos_per_day = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
+    profiles = carica_profili()
+    rec = recommend_publish_hours(
+        profiles,
+        videos_per_day=videos_per_day,
+        current_hours=state.get("best_hours_utc"),
+        performance_rows=performance,
+    )
+    hours = rec["hours"]
     state["best_hours_utc"] = hours
-    # persisti subito: lo state passato alla pipeline non viene risalvato
-    # integralmente a fine run (pattern anti lost-update)
+    state["publish_optimization"] = {
+        "confidence": rec.get("confidence"),
+        "video_count": rec.get("video_count"),
+        "changed": rec.get("changed"),
+        "reason": rec.get("reason"),
+    }
+    try:
+        from moduli.publish_optimization import build_publish_strategy
+        state["publish_timing"] = build_publish_strategy(profiles, state=state)
+    except Exception:
+        pass
     fresh = _load_state()
     if fresh.get("best_hours_utc") != hours:
         fresh["best_hours_utc"] = hours
+        fresh["publish_optimization"] = state["publish_optimization"]
         _save_state(fresh)
-    print(f"  Auto-scheduling: best hours set to {hours}")
+    note = rec.get("reason", "")
+    print(f"  Auto-scheduling: best hours set to {hours} ({note})", flush=True)
 
 
 def _cleanup_stale_state() -> None:
@@ -620,22 +791,22 @@ def _cleanup_stale_state() -> None:
     state = _load_state()
     changed = False
     if state.pop("force_run", None) is not None:
-        _log("  → force_run rimosso (stale da sessione precedente)")
+        _log("  -> Cleared stale force_run from previous session")
         changed = True
     if state.pop("publish_immediately", None) is not None:
-        _log("  -> publish_immediately rimosso (stale da sessione precedente)")
+        _log("  -> Cleared stale publish_immediately from previous session")
         changed = True
     if state.pop("abort_pipeline", None) is not None:
-        _log("  -> abort_pipeline rimosso (stale da sessione precedente)")
+        _log("  -> Cleared stale abort_pipeline from previous session")
         changed = True
     if state.pop("pipeline_status", None) is not None:
-        _log("  -> pipeline_status rimosso (stale da sessione precedente)")
+        _log("  -> Cleared stale pipeline_status from previous session")
         changed = True
     # rimuovi topic "…" o vuoti finiti in coda per errore
     queue = state.get("topic_queue", [])
     clean_queue = [t for t in queue if t.strip() and t.strip() not in ("…", "...")]
     if len(clean_queue) != len(queue):
-        _log(f"  → Rimossi {len(queue) - len(clean_queue)} topic non validi dalla coda")
+        _log(f"  -> Removed {len(queue) - len(clean_queue)} invalid topics from queue")
         state["topic_queue"] = clean_queue
         changed = True
     # resetta runs_today se è un giorno diverso
@@ -646,31 +817,72 @@ def _cleanup_stale_state() -> None:
         changed = True
     if changed:
         _save_state(state)
-    _log(f"  Topic in coda dopo pulizia: {state.get('topic_queue', [])}")
+    try:
+        from moduli.topic_history import ensure_topic_history_seeded
+        ensure_topic_history_seeded(state)
+    except Exception as e:
+        _log(f"  -> Topic history seed skipped: {e}")
+    _log(f"  Topic queue after cleanup: {state.get('topic_queue', [])}")
     # manutenzione disco al boot: temp orfani + cache sotto soglia
     n_temp = pulisci_temp_render("output")
     if n_temp:
-        _log(f"  → Rimossi {n_temp} render temporanei orfani")
+        _log(f"  -> Removed {n_temp} orphan temp render files")
     # proteggi le clip del checkpoint: servono se la run interrotta riprende
     _cp_boot = _load_checkpoint()
     liberati = pulisci_cache(protetti=set((_cp_boot.get("clip_paths") or {}).values()))
     if liberati:
-        _log(f"  → Cache potata: {liberati:.0f} MB liberati")
-    _log(f"  Spazio disco libero: {spazio_libero_gb('.'):.1f} GB")
+        _log(f"  -> Cache pruned: {liberati:.0f} MB freed")
+    _log(f"  Free disk space: {spazio_libero_gb('.'):.1f} GB")
+
+
+def _shorts_slot_to_run(now: datetime) -> tuple[int, str] | None:
+    """Return (slot_index, reason) to produce now, or None."""
+    try:
+        from moduli.shorts.state import load_state as load_shorts_state
+        from moduli.shorts.scheduler import next_slot_to_produce
+
+        ss = load_shorts_state()
+        if ss.get("pipeline_status"):
+            return None
+        return next_slot_to_produce(now, state=ss)
+    except Exception:
+        return None
 
 
 def main():
     from moduli.logsetup import setup as _log_su_file
     _log_su_file()
     _acquire_pid_lock()
-    _log("━━━ YouTube AI Agent avviato ━━━")
+    _log("=== YouTube AI Agent started ===")
     _cleanup_stale_state()
 
     state = _load_state()
     trigger_hours = _get_trigger_hours(state)
     vpd = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
-    _log(f"  Video al giorno: {vpd} | Trigger: {trigger_hours} UTC")
-    _log(f"  Topic in coda: {len(state.get('topic_queue', []))}")
+    _log(f"  Videos per day: {vpd} | Trigger hours: {trigger_hours} UTC")
+    _log(f"  Topics in queue: {len(state.get('topic_queue', []))}")
+    try:
+        from moduli.shorts.config import load_config
+        from moduli.shorts.state import load_state as _shorts_state, runs_today as _shorts_done
+        from moduli.shorts.scheduler import production_hours_local, slot_label, missed_slots_today
+
+        scfg = load_config()
+        ss = _shorts_state()
+        if scfg.enabled and ss.get("enabled", True):
+            hours = production_hours_local(scfg)
+            slots = ", ".join(
+                f"{slot_label(i)} {h:02d}:00" for i, h in enumerate(hours[: scfg.per_day])
+            )
+            _log(
+                f"  Shorts: {_shorts_done(ss)}/{scfg.per_day} today | "
+                f"Production ({scfg.timezone}): {slots}"
+            )
+            missed = missed_slots_today(config=scfg, state=ss)
+            if missed:
+                labels = ", ".join(slot_label(s) for s in missed)
+                _log(f"  Shorts: catching up missed windows — {labels}")
+    except Exception:
+        pass
 
     bot_thread = start_bot()
     bot_restarts = 0
@@ -686,14 +898,14 @@ def main():
         if bot_thread is not None and not bot_thread.is_alive():
             if bot_restarts < 3:
                 bot_restarts += 1
-                _log(f"Bot Telegram terminato — riavvio ({bot_restarts}/3)...")
-                notify_error(f"Bot Telegram crashato — riavvio automatico ({bot_restarts}/3).")
+                _log(f"Telegram bot stopped — restarting ({bot_restarts}/3)...")
+                notify_error(f"Telegram bot crashed — auto-restart ({bot_restarts}/3).")
                 bot_thread = start_bot()
             else:
-                _log("Bot Telegram crashato troppe volte — stop riavvii automatici.")
+                _log("Telegram bot crashed too many times — stopping auto-restarts.")
                 notify_error(
-                    "Bot Telegram crashato ripetutamente: controllo remoto disattivato. "
-                    "La pipeline continua da sola; riavvia l'agente per ripristinare il bot."
+                    "Telegram bot crashed repeatedly: remote control disabled. "
+                    "The pipeline keeps running; restart the agent to restore the bot."
                 )
                 bot_thread = None
 
@@ -701,15 +913,13 @@ def main():
             trigger_hours = _get_trigger_hours(state)
             vpd = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
             done = _runs_today(state)
-            print(f"[{now.strftime('%Y-%m-%d %H:%M UTC')}] tick — {done}/{vpd} video oggi — trigger: {trigger_hours}")
+            print(f"[{now.strftime('%Y-%m-%d %H:%M UTC')}] tick — {done}/{vpd} videos today — trigger: {trigger_hours}")
 
         if _should_run(state, now, last_attempt):
             forced = bool(state.get("force_run"))
             if not forced:
-                # segna il tentativo PRIMA di partire: un crash non fa
-                # ripartire la pipeline in loop nella stessa ora
                 last_attempt = (now.strftime("%Y-%m-%d"), now.hour)
-            _log(f"Trigger ({'FORCED' if forced else 'scheduled'}) — avvio pipeline")
+            _log(f"Trigger ({'FORCED' if forced else 'scheduled'}) — starting pipeline")
             # Pulisci force_run PRIMA di partire: se la pipeline crasha,
             # il flag è già rimosso e il daemon non entra in loop infinito.
             state.pop("force_run", None)
@@ -721,7 +931,7 @@ def main():
                 state = _load_state()
                 state.pop("abort_pipeline", None)
                 _save_state(state)
-                notify_error("Pipeline interrotta su richiesta Telegram.")
+                notify_error("Pipeline aborted on Telegram request.")
             except Exception:
                 err = traceback.format_exc()
                 _log(err)
@@ -735,6 +945,26 @@ def main():
             finally:
                 _pulisci_status_pipeline()
             state = _load_state()
+
+        if pick := _shorts_slot_to_run(now):
+            slot, reason = pick
+            from moduli.shorts.config import load_config as _scfg
+            from moduli.shorts.scheduler import slot_label
+            from zoneinfo import ZoneInfo
+
+            scfg = _scfg()
+            local = now.astimezone(ZoneInfo(scfg.timezone))
+            _log(
+                f"Shorts trigger — {slot_label(slot)} slot "
+                f"({local.strftime('%H:%M')} {scfg.timezone}, {reason})"
+            )
+            try:
+                from moduli.shorts.pipeline import run_shorts_slot
+                run_shorts_slot(slot)
+            except Exception:
+                err = traceback.format_exc()
+                _log(err)
+                notify_error(f"Shorts batch crash:\n{err.strip().split(chr(10))[-1][:300]}")
 
         time.sleep(60)
 

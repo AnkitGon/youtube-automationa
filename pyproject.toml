@@ -23,6 +23,7 @@ dependencies = [
     "ddgs>=9.0.0",
     "gTTS>=2.5.0",
     "rich>=13.0.0",
+    "tzdata>=2024.1",
 ]
 
 # SDK provider AI: installa solo quello che usi, es. `pip install tube-assistant[openai]`.

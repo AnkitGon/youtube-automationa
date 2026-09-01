@@ -1,29 +1,54 @@
-# secrets & runtime state
-.agent.pid
+# ── Secrets (never commit) ───────────────────────────────────────────────────
 .env
+.env.local
+.env.*.local
 credentials.json
 client_secret_*.json
 token.json
-preferenze_video.json
+_creds_setup_tmp.json
+
+# ── Runtime state & channel-specific data ────────────────────────────────────
+.agent.pid
 state.json
 state.json.bak
+preferenze_video.json
 memoria_lungo_termine.json
-strategia_storia.json
 
-# runtime output
+# Strategy & learning (contains your channel analytics patterns)
+strategia_storia.json
+video_learnings.json
+video_performance_profiles.json
+strategy_memory.json
+channel_learning.json
+topic_history.json
+topic_diversity.json
+title_learning.json
+hook_learning.json
+experiments.json
+
+# Shorts runtime data
+shorts_state.json
+shorts_state.json.bak
+shorts_history.json
+shorts_profiles.json
+shorts_strategy.json
+
+# Pipeline checkpoints
+output/pipeline_checkpoint.json
+
+# ── Generated media & caches ─────────────────────────────────────────────────
 output/
 cache/
 logs/
 
-# setup artifacts
+# ── Setup artifacts ──────────────────────────────────────────────────────────
 .setup_done
-_creds_setup_tmp.json
 
-# demo build sources (regenerate locally)
+# ── Demo build sources (regenerate locally) ──────────────────────────────────
 presentazione_build/
 frames/
 
-# python
+# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -33,8 +58,13 @@ build/
 .venv/
 venv/
 
-# IDE / tools
+# ── IDE / tools ──────────────────────────────────────────────────────────────
 .claude/
 .vscode/
 .idea/
 *.swp
+*~
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store

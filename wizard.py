@@ -191,7 +191,7 @@ def _test_openrouter(key: str) -> tuple[bool, str]:
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": "meta-llama/llama-3.3-70b-instruct:free",
+            json={"model": "openrouter/free",
                   "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5},
             timeout=25,
         )

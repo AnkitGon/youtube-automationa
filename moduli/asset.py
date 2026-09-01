@@ -95,7 +95,17 @@ def _download(url: str, dest: str) -> None:
         raise
 
 
-def _best_file(video_files: list) -> str:
+def _best_file(video_files: list, *, prefer_vertical: bool = False) -> str:
+    if prefer_vertical:
+        vertical = [
+            v for v in video_files
+            if v.get("height", 0) > v.get("width", 0) and v.get("height", 0) >= 720
+        ]
+        if vertical:
+            vertical.sort(key=lambda v: v.get("height", 0), reverse=True)
+            link = vertical[0].get("link")
+            if link:
+                return link
     hd = [v for v in video_files if v.get("quality") in ("hd", "uhd") and v.get("width", 0) >= 1280]
     pool = hd if hd else video_files
     if not pool:
@@ -132,9 +142,9 @@ def _find_cached_by_tags(tags: list[str], index: dict) -> str | None:
     return None
 
 
-def _fetch_metadata(keyword: str, headers: dict) -> dict | None:
+def _fetch_metadata(keyword: str, headers: dict, *, orientation: str = "landscape") -> dict | None:
     for size in ("large", "medium"):
-        params = {"query": keyword, "orientation": "landscape", "per_page": 5, "size": size}
+        params = {"query": keyword, "orientation": orientation, "per_page": 5, "size": size}
         try:
             r = requests.get(PEXELS_SEARCH, headers=headers, params=params, timeout=15)
             r.raise_for_status()
@@ -223,10 +233,17 @@ def scarica_clip(keyword: str, extra_tags: list[str] | None = None) -> str:
     return path
 
 
-def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = None) -> list[str]:
+def scarica_clips(
+    keyword: str,
+    max_n: int = 3,
+    extra_tags: list[str] | None = None,
+    *,
+    orientation: str = "landscape",
+) -> list[str]:
     """Scarica fino a max_n clip DISTINTE per il keyword (per arricchire il pool
     ed evitare ripetizioni nel montaggio). Ogni clip e' un file fisico diverso,
     indicizzato per id Pexels. Ritorna la lista dei path scaricati/cached."""
+    prefer_vertical = orientation == "portrait"
     os.makedirs(CACHE_DIR, exist_ok=True)
     api_key = os.environ.get("PEXELS_API_KEY", "")
     if not api_key:
@@ -236,7 +253,7 @@ def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = N
 
     videos = []
     for size in ("large", "medium"):
-        params = {"query": keyword, "orientation": "landscape",
+        params = {"query": keyword, "orientation": orientation,
                   "per_page": max(max_n, 5), "size": size}
         try:
             r = requests.get(PEXELS_SEARCH, headers=headers, params=params, timeout=15)
@@ -266,7 +283,7 @@ def scarica_clips(keyword: str, max_n: int = 3, extra_tags: list[str] | None = N
             paths.append(cached)
         else:
             try:
-                link = _best_file(v["video_files"])
+                link = _best_file(v["video_files"], prefer_vertical=prefer_vertical)
                 _download(link, dest)
                 paths.append(dest)
             except Exception as e:

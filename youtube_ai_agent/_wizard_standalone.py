@@ -1,6 +1,6 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
-YouTube AI Agent — First-time Setup Wizard
+YouTube AI Agent � First-time Setup Wizard
 Bundled copy used by uv tool install deployments.
 """
 
@@ -55,7 +55,7 @@ CREDS_FILE    = "credentials.json"
 SETUP_DONE    = ".setup_done"
 
 
-# ── env helpers ───────────────────────────────────────────────────────────────
+# -- env helpers ---------------------------------------------------------------
 
 def load_env() -> dict:
     if Path(ENV_FILE).exists():
@@ -72,7 +72,7 @@ def write_env_key(key: str, value: str) -> None:
     set_key(ENV_FILE, key, value, quote_mode="never")
 
 
-# ── state / pref / memory helpers ─────────────────────────────────────────────
+# -- state / pref / memory helpers ---------------------------------------------
 
 def load_state() -> dict:
     if Path(STATE_FILE).exists():
@@ -129,7 +129,7 @@ def add_memory(text: str) -> None:
     )
 
 
-# ── display helpers ───────────────────────────────────────────────────────────
+# -- display helpers -----------------------------------------------------------
 
 def header(title: str, subtitle: str = "") -> None:
     console.print()
@@ -140,19 +140,19 @@ def header(title: str, subtitle: str = "") -> None:
     console.print()
 
 
-def ok(msg: str):  console.print(f"  [bold green]✓[/]  {msg}")
-def info(msg: str): console.print(f"  [dim cyan]→[/]  {msg}")
-def warn(msg: str): console.print(f"  [bold yellow]⚠[/]  {msg}")
-def err(msg: str):  console.print(f"  [bold red]✗[/]  {msg}")
+def ok(msg: str):  console.print(f"  [bold green]?[/]  {msg}")
+def info(msg: str): console.print(f"  [dim cyan]?[/]  {msg}")
+def warn(msg: str): console.print(f"  [bold yellow]?[/]  {msg}")
+def err(msg: str):  console.print(f"  [bold red]?[/]  {msg}")
 
 
-# ── step 0 — agent language ───────────────────────────────────────────────────
+# -- step 0 � agent language ---------------------------------------------------
 
 def step_agent_language() -> None:
     console.clear()
-    header("Step 1 / 6 — Agent Language", "What language should your Telegram assistant speak?")
+    header("Step 1 / 6 � Agent Language", "What language should your Telegram assistant speak?")
 
-    console.print("  [dim]Type any language: English, Italiano, Español, Français, Deutsch…[/]")
+    console.print("  [dim]Type any language: English, Italiano, Espa�ol, Fran�ais, Deutsch�[/]")
     console.print()
 
     lang = Prompt.ask("  Language", default="English").strip()
@@ -163,16 +163,16 @@ def step_agent_language() -> None:
     ok(f"Agent language set to [bold]{lang}[/]")
 
 
-# ── step 1 — AI service ───────────────────────────────────────────────────────
+# -- step 1 � AI service -------------------------------------------------------
 
 AI_SERVICES = {
-    "1":  {"name": "OpenRouter",   "desc": "Free tier — 100+ models",          "service_id": "openrouter",   "env_key": "OPENROUTER_API_KEY",   "hint": "openrouter.ai/keys"},
+    "1":  {"name": "OpenRouter",   "desc": "Free tier � 100+ models",          "service_id": "openrouter",   "env_key": "OPENROUTER_API_KEY",   "hint": "openrouter.ai/keys"},
     "2":  {"name": "OpenAI",       "desc": "GPT-4o, GPT-4o-mini",              "service_id": "openai",       "env_key": "OPENAI_API_KEY",       "hint": "platform.openai.com/api-keys"},
     "3":  {"name": "Anthropic",    "desc": "Claude 3.5 Haiku / Sonnet",        "service_id": "anthropic",    "env_key": "ANTHROPIC_API_KEY",    "hint": "console.anthropic.com"},
-    "4":  {"name": "Gemini",       "desc": "Gemini 2.0 Flash — free tier",     "service_id": "gemini",       "env_key": "GEMINI_API_KEY",       "hint": "aistudio.google.com/apikey"},
+    "4":  {"name": "Gemini",       "desc": "Gemini 2.0 Flash � free tier",     "service_id": "gemini",       "env_key": "GEMINI_API_KEY",       "hint": "aistudio.google.com/apikey"},
     "5":  {"name": "Mistral",      "desc": "Mistral Small / Large",            "service_id": "mistral",      "env_key": "MISTRAL_API_KEY",      "hint": "console.mistral.ai/api-keys"},
-    "6":  {"name": "Groq",         "desc": "Ultra-fast inference — free tier", "service_id": "groq",         "env_key": "GROQ_API_KEY",         "hint": "console.groq.com/keys"},
-    "7":  {"name": "DeepSeek",     "desc": "DeepSeek-V3 — very affordable",    "service_id": "deepseek",     "env_key": "DEEPSEEK_API_KEY",     "hint": "platform.deepseek.com/api_keys"},
+    "6":  {"name": "Groq",         "desc": "Ultra-fast inference � free tier", "service_id": "groq",         "env_key": "GROQ_API_KEY",         "hint": "console.groq.com/keys"},
+    "7":  {"name": "DeepSeek",     "desc": "DeepSeek-V3 � very affordable",    "service_id": "deepseek",     "env_key": "DEEPSEEK_API_KEY",     "hint": "platform.deepseek.com/api_keys"},
     "8":  {"name": "xAI (Grok)",   "desc": "Grok-2 by xAI",                   "service_id": "xai",          "env_key": "XAI_API_KEY",          "hint": "console.x.ai"},
     "9":  {"name": "Cohere",       "desc": "Command R+",                       "service_id": "cohere",       "env_key": "COHERE_API_KEY",       "hint": "dashboard.cohere.com/api-keys"},
     "10": {"name": "Together AI",  "desc": "Open source models, fast",         "service_id": "together",     "env_key": "TOGETHER_API_KEY",     "hint": "api.together.ai/settings/api-keys"},
@@ -180,7 +180,7 @@ AI_SERVICES = {
     "12": {"name": "Fireworks AI", "desc": "Fast open source inference",       "service_id": "fireworks",    "env_key": "FIREWORKS_API_KEY",    "hint": "fireworks.ai/api-keys"},
     "13": {"name": "Azure OpenAI", "desc": "OpenAI via Microsoft Azure",       "service_id": "azure_openai", "env_key": "AZURE_OPENAI_API_KEY", "hint": "portal.azure.com"},
     "14": {"name": "Ollama Cloud", "desc": "Hosted nemotron-3-super",          "service_id": "ollama_cloud", "env_key": "OLLAMA_API_KEY",       "hint": "ollama.com"},
-    "15": {"name": "Local Ollama", "desc": "Any model on your machine — free", "service_id": "ollama_local", "env_key": None,                   "hint": "ollama.com/download"},
+    "15": {"name": "Local Ollama", "desc": "Any model on your machine � free", "service_id": "ollama_local", "env_key": None,                   "hint": "ollama.com/download"},
 }
 
 
@@ -190,7 +190,7 @@ def _test_openrouter(key: str) -> tuple[bool, str]:
         r = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": "meta-llama/llama-3.3-70b-instruct:free",
+            json={"model": "openrouter/free",
                   "messages": [{"role": "user", "content": "Hi"}], "max_tokens": 5},
             timeout=25,
         )
@@ -274,7 +274,7 @@ def _test_gemini(key: str) -> tuple[bool, str]:
 
 def step_ai_service() -> None:
     console.clear()
-    header("Step 2 / 6 — AI Service", "Choose which AI powers the agent")
+    header("Step 2 / 6 � AI Service", "Choose which AI powers the agent")
 
     table = Table(show_header=True, header_style="bold cyan", border_style="dim")
     table.add_column("#", width=3)
@@ -347,26 +347,26 @@ def step_ai_service() -> None:
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
 
 
-# ── step 2b — image provider ──────────────────────────────────────────────────
+# -- step 2b � image provider --------------------------------------------------
 
 IMAGE_PROVIDERS = {
     "1": {
         "name": "Free (no API key)",
-        "desc": "Pollinations.ai — free, no account needed, good quality",
+        "desc": "Pollinations.ai � free, no account needed, good quality",
         "provider_id": "pollinations",
         "env_key": None,
         "hint": None,
     },
     "2": {
         "name": "HuggingFace FLUX.1-schnell",
-        "desc": "High quality AI images — free HF account required",
+        "desc": "High quality AI images � free HF account required",
         "provider_id": "huggingface",
         "env_key": "HF_API_KEY",
         "hint": "huggingface.co/settings/tokens",
     },
     "3": {
         "name": "OpenRouter",
-        "desc": "Uses your existing OpenRouter key — FLUX.1-schnell",
+        "desc": "Uses your existing OpenRouter key � FLUX.1-schnell",
         "provider_id": "openrouter",
         "env_key": "OPENROUTER_API_KEY",
         "hint": None,
@@ -377,7 +377,7 @@ IMAGE_PROVIDERS = {
 def _test_hf_key(key: str) -> tuple[bool, str]:
     import requests
     if not key.startswith("hf_") or len(key) < 20:
-        return False, "Token non valido. Deve iniziare con 'hf_' — copialo da huggingface.co/settings/tokens"
+        return False, "Token non valido. Deve iniziare con 'hf_' � copialo da huggingface.co/settings/tokens"
     try:
         # verifica token tramite API profilo utente
         r = requests.get(
@@ -396,12 +396,12 @@ def _test_hf_key(key: str) -> tuple[bool, str]:
 
 def step_image_provider() -> None:
     console.clear()
-    header("Step 3 / 6 — Thumbnail Image Generation",
+    header("Step 3 / 6 � Thumbnail Image Generation",
            "Choose how to generate your video thumbnails")
 
     console.print("  [bold]Available providers:[/]\n")
     for num, p in IMAGE_PROVIDERS.items():
-        console.print(f"  [cyan]{num}[/]  [bold]{p['name']}[/]  [dim]— {p['desc']}[/]")
+        console.print(f"  [cyan]{num}[/]  [bold]{p['name']}[/]  [dim]� {p['desc']}[/]")
     console.print()
 
     choice = Prompt.ask("  Choose provider", choices=list(IMAGE_PROVIDERS.keys()), default="1")
@@ -410,11 +410,11 @@ def step_image_provider() -> None:
     console.print()
 
     if prov["provider_id"] == "pollinations":
-        info("No API key needed — thumbnails generated automatically")
+        info("No API key needed � thumbnails generated automatically")
 
     elif prov["provider_id"] == "huggingface":
         info(f"Get a free token at: {prov['hint']}")
-        console.print("  [dim](Create account → Settings → Access Tokens → New token, type: Read)[/]")
+        console.print("  [dim](Create account ? Settings ? Access Tokens ? New token, type: Read)[/]")
         console.print()
         key = Prompt.ask("[bold]HuggingFace API token[/]", password=False)
         write_env_key("HF_API_KEY", key)
@@ -423,7 +423,7 @@ def step_image_provider() -> None:
             p_.add_task("")
             passed, emsg = _test_hf_key(key)
         if passed:
-            ok("Token HuggingFace verificato — funziona!")
+            ok("Token HuggingFace verificato � funziona!")
         else:
             console.print()
             warn(emsg)
@@ -439,7 +439,7 @@ def step_image_provider() -> None:
         if existing:
             ok("Will use existing OpenRouter key for image generation")
         else:
-            warn("No OpenRouter key found — set it in Step 2 (AI Service) or add manually to .env")
+            warn("No OpenRouter key found � set it in Step 2 (AI Service) or add manually to .env")
 
     console.print()
     ok(f"Image provider set to [bold]{prov['name']}[/]")
@@ -447,11 +447,11 @@ def step_image_provider() -> None:
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
 
 
-# ── step 2c — pexels ──────────────────────────────────────────────────────────
+# -- step 2c � pexels ----------------------------------------------------------
 
 def step_pexels() -> None:
     console.clear()
-    header("Step 4 / 6 — Pexels API", "Free stock video clips for your videos")
+    header("Step 4 / 6 � Pexels API", "Free stock video clips for your videos")
     info("Create a free account and get a key at: [link]https://www.pexels.com/api/[/]")
     console.print()
     key = Prompt.ask("[bold]Pexels API key[/]")
@@ -462,7 +462,7 @@ def step_pexels() -> None:
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
 
 
-# ── step 3 — telegram token ───────────────────────────────────────────────────
+# -- step 3 � telegram token ---------------------------------------------------
 
 _BOT_COMMANDS = [
     ("start",           "Mostra tutti i comandi"),
@@ -505,7 +505,7 @@ def _register_bot_commands(token: str) -> bool:
 
 def step_telegram_token() -> str:
     console.clear()
-    header("Step 5 / 6 — Telegram Bot", "Your live control interface")
+    header("Step 5 / 6 � Telegram Bot", "Your live control interface")
 
     console.print("  [bold]How to create a bot:[/]")
     console.print("  1. Open Telegram and start a chat with [cyan]@BotFather[/]")
@@ -517,76 +517,76 @@ def step_telegram_token() -> str:
     write_env_key("TELEGRAM_BOT_TOKEN", token)
 
     if not re.match(r"^\d+:[A-Za-z0-9_-]{35,}$", token):
-        warn("That doesn't look like a valid bot token — double-check it.")
+        warn("That doesn't look like a valid bot token � double-check it.")
 
     with Progress(SpinnerColumn(), TextColumn("[cyan]Registering bot commands..."), transient=True) as p:
         p.add_task("")
         registered = _register_bot_commands(token)
 
     if registered:
-        ok("Token saved — comandi / registrati su Telegram")
+        ok("Token saved � comandi / registrati su Telegram")
     else:
         ok("Token saved")
-        warn("Comandi / non registrati — verranno attivati al primo avvio dell'agente")
+        warn("Comandi / non registrati � verranno attivati al primo avvio dell'agente")
 
     console.print()
     Prompt.ask("[dim]Press Enter to continue[/]", default="")
     return token
 
 
-# ── step 4 — telegram onboarding (async bot) ──────────────────────────────────
+# -- step 4 � telegram onboarding (async bot) ----------------------------------
 
 _QUESTIONS_EN = [
-    ("user_name",        "👋 Hi! I'm your YouTube AI Agent.\n\nFirst — what's your name?"),
+    ("user_name",        "?? Hi! I'm your YouTube AI Agent.\n\nFirst � what's your name?"),
     ("channel_name",     "Nice to meet you, {user_name}!\n\nWhat is the name of your YouTube channel?"),
     ("channel_topic",    "What topic or niche is the channel about?\n(e.g. AI, cooking, travel, gaming, finance...)"),
     ("channel_goals",    "What are the goals for the channel?\n(e.g. reach 10k subscribers, monetize, build a personal brand...)"),
     ("channel_genre",    "What video genre/style do you want?\n(e.g. educational, entertaining, documentary, news, shorts...)"),
-    ("thumbnail_style",  "🖼 How should your thumbnails look?\n\nDescribe the visual style freely.\n\nExamples:\n• dark cinematic, dramatic lighting, deep shadows\n• bright vibrant colors, energetic pop style\n• minimalist, clean white background, bold text\n• neon futuristic, cyberpunk, glowing outlines\n• warm tones, cozy lifestyle photography"),
+    ("thumbnail_style",  "?? How should your thumbnails look?\n\nDescribe the visual style freely.\n\nExamples:\n� dark cinematic, dramatic lighting, deep shadows\n� bright vibrant colors, energetic pop style\n� minimalist, clean white background, bold text\n� neon futuristic, cyberpunk, glowing outlines\n� warm tones, cozy lifestyle photography"),
     ("language",         "What language should the videos be in?\n\nReply: english  or  italian"),
 ]
 
 _QUESTIONS_IT = [
-    ("user_name",        "👋 Ciao! Sono il tuo YouTube AI Agent.\n\nPer iniziare — come ti chiami?"),
+    ("user_name",        "?? Ciao! Sono il tuo YouTube AI Agent.\n\nPer iniziare � come ti chiami?"),
     ("channel_name",     "Piacere, {user_name}!\n\nCome si chiama il tuo canale YouTube?"),
     ("channel_topic",    "Di che argomento o nicchia tratta il canale?\n(es. AI, cucina, viaggi, gaming, finanza...)"),
     ("channel_goals",    "Quali sono gli obiettivi del canale?\n(es. arrivare a 10k iscritti, monetizzare, costruire un personal brand...)"),
     ("channel_genre",    "Che genere/stile di video vuoi fare?\n(es. educativo, intrattenimento, documentario, news, shorts...)"),
-    ("thumbnail_style",  "🖼 Come devono essere le copertine dei tuoi video?\n\nDescrivi liberamente lo stile visivo.\n\nEsempi:\n• dark cinematografico, luci drammatiche, ombre profonde\n• colori vivaci e brillanti, stile energetico pop\n• minimal, sfondo bianco pulito, testo in grassetto\n• neon futuristico, cyberpunk, luci al neon\n• toni caldi, fotografia lifestyle accogliente"),
+    ("thumbnail_style",  "?? Come devono essere le copertine dei tuoi video?\n\nDescrivi liberamente lo stile visivo.\n\nEsempi:\n� dark cinematografico, luci drammatiche, ombre profonde\n� colori vivaci e brillanti, stile energetico pop\n� minimal, sfondo bianco pulito, testo in grassetto\n� neon futuristico, cyberpunk, luci al neon\n� toni caldi, fotografia lifestyle accogliente"),
     ("language",         "In che lingua devono essere i video?\n\nRispondi: english  oppure  italian"),
 ]
 
 _CREDS_MSG_EN = (
-    "🔑 *Almost done!* I need access to your YouTube channel.\n\n"
+    "?? *Almost done!* I need access to your YouTube channel.\n\n"
     "Follow these steps:\n"
     "1. Go to [console.cloud.google.com](https://console.cloud.google.com)\n"
     "2. Create or select a project\n"
     "3. Enable *YouTube Data API v3*\n"
-    "4. Go to Credentials → Create Credentials → OAuth 2.0 Client IDs\n"
+    "4. Go to Credentials ? Create Credentials ? OAuth 2.0 Client IDs\n"
     "5. Application type: *Desktop app*\n"
     "6. Download the JSON file\n"
-    "7. Send it here as a file 📎\n\n"
+    "7. Send it here as a file ??\n\n"
     "I'll handle the rest!"
 )
 
 _CREDS_MSG_IT = (
-    "🔑 *Quasi fatto!* Ho bisogno di accedere al tuo canale YouTube.\n\n"
+    "?? *Quasi fatto!* Ho bisogno di accedere al tuo canale YouTube.\n\n"
     "Segui questi passi:\n"
     "1. Vai su [console.cloud.google.com](https://console.cloud.google.com)\n"
     "2. Crea o seleziona un progetto\n"
     "3. Abilita *YouTube Data API v3*\n"
-    "4. Vai su Credenziali → Crea credenziali → ID client OAuth 2.0\n"
+    "4. Vai su Credenziali ? Crea credenziali ? ID client OAuth 2.0\n"
     "5. Tipo applicazione: *App desktop*\n"
     "6. Scarica il file JSON\n"
-    "7. Inviamelo qui come file 📎\n\n"
+    "7. Inviamelo qui come file ??\n\n"
     "Penso a tutto io!"
 )
 
 _LANG_PROMPT = (
-    "👋 Hi / Ciao!\n\n"
+    "?? Hi / Ciao!\n\n"
     "Choose setup language:\n"
-    "• Reply [bold]english[/bold]\n"
-    "• Rispondi [bold]italiano[/bold]"
+    "� Reply [bold]english[/bold]\n"
+    "� Rispondi [bold]italiano[/bold]"
 )
 
 
@@ -599,7 +599,7 @@ async def run_onboarding(token: str) -> dict:
     # state machine
     state: dict = {
         "chat_id":    None,
-        "phase":      "lang",   # lang → questions → creds → done
+        "phase":      "lang",   # lang ? questions ? creds ? done
         "lang":       "en",
         "q_idx":      0,
         "answers":    {},
@@ -650,9 +650,9 @@ async def run_onboarding(token: str) -> dict:
         elif phase == "creds":
             lang = state["lang"]
             reminder = (
-                "Invia il file JSON di Google come *allegato* 📎"
+                "Invia il file JSON di Google come *allegato* ??"
                 if lang == "it" else
-                "Please send the Google JSON file as an *attachment* 📎"
+                "Please send the Google JSON file as an *attachment* ??"
             )
             await send(ctx, chat_id, reminder)
 
@@ -676,18 +676,18 @@ async def run_onboarding(token: str) -> dict:
         except Exception as e:
             Path(tmp).unlink(missing_ok=True)
             bad_msg = (
-                f"❌ File non valido: {e}\nRiscarica il file da Google Cloud Console."
+                f"? File non valido: {e}\nRiscarica il file da Google Cloud Console."
                 if lang == "it" else
-                f"❌ Invalid file: {e}\nPlease re-download the JSON from Google Cloud Console."
+                f"? Invalid file: {e}\nPlease re-download the JSON from Google Cloud Console."
             )
             await send(ctx, update.message.chat_id, bad_msg)
             return
 
         state["phase"] = "done"
         done_msg = (
-            "✅ *Setup completato!*\n\nAvvia l'agente con:\n`python agent.py`\n\nA presto! 🚀"
+            "? *Setup completato!*\n\nAvvia l'agente con:\n`python agent.py`\n\nA presto! ??"
             if lang == "it" else
-            "✅ *Setup complete!*\n\nStart the agent with:\n`python agent.py`\n\nSee you there! 🚀"
+            "? *Setup complete!*\n\nStart the agent with:\n`python agent.py`\n\nSee you there! ??"
         )
         await send(ctx, update.message.chat_id, done_msg)
 
@@ -716,7 +716,7 @@ async def run_onboarding(token: str) -> dict:
 
 def step_telegram_onboarding(token: str) -> dict:
     console.clear()
-    header("Step 6 / 6 — Channel Setup via Telegram", "Your AI agent will interview you")
+    header("Step 6 / 6 � Channel Setup via Telegram", "Your AI agent will interview you")
 
     console.print(Panel(
         "[bold cyan]Open your Telegram bot and send /start[/]\n\n"
@@ -726,19 +726,19 @@ def step_telegram_onboarding(token: str) -> dict:
         padding=(1, 4),
     ))
     console.print()
-    info("Waiting for you on Telegram…")
+    info("Waiting for you on Telegram�")
     console.print()
 
     return asyncio.run(run_onboarding(token))
 
 
-# ── save all results ──────────────────────────────────────────────────────────
+# -- save all results ----------------------------------------------------------
 
 def save_results(data: dict) -> None:
     # telegram chat id
     write_env_key("TELEGRAM_CHAT_ID", data.get("chat_id", ""))
 
-    # language → preferenze
+    # language ? preferenze
     lang_raw = data.get("language", "english").lower()
     lang = "italian" if ("ital" in lang_raw or "italian" in lang_raw) else "english"
     pref = load_pref()
@@ -754,7 +754,7 @@ def save_results(data: dict) -> None:
     save_pref(pref)
 
     # long-term memory
-    # thumbnail style → preferenze
+    # thumbnail style ? preferenze
     thumb_style = data.get("thumbnail_style", "").strip()
     if thumb_style:
         pref["stile_thumbnail"] = thumb_style
@@ -778,7 +778,7 @@ def save_results(data: dict) -> None:
     Path(SETUP_DONE).write_text("done", encoding="utf-8")
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# -- main ----------------------------------------------------------------------
 
 def main() -> None:
     console.clear()
@@ -786,7 +786,7 @@ def main() -> None:
         Align.center(
             "[bold cyan]YouTube AI Agent[/]\n"
             "[bold]Setup Wizard[/]\n\n"
-            "[dim]Autonomous video pipeline: script → TTS → clips → montage → upload[/]\n\n"
+            "[dim]Autonomous video pipeline: script ? TTS ? clips ? montage ? upload[/]\n\n"
             "[dim]This wizard configures everything in 5 steps.[/]"
         ),
         border_style="cyan",
@@ -806,7 +806,7 @@ def main() -> None:
         console.print()
         sys.exit(0)
 
-    # ── steps ────────────────────────────────────────────────────────────────
+    # -- steps ----------------------------------------------------------------
     step_agent_language()
     step_ai_service()
     step_image_provider()
@@ -815,11 +815,11 @@ def main() -> None:
     data  = step_telegram_onboarding(token)
     save_results(data)
 
-    # ── done screen ───────────────────────────────────────────────────────────
+    # -- done screen -----------------------------------------------------------
     console.clear()
     console.print(Panel(
         Align.center(
-            "[bold green]✓  Setup Complete![/]\n\n"
+            "[bold green]?  Setup Complete![/]\n\n"
             "[dim]All settings saved.[/]\n\n"
             "[bold cyan]Starting the agent now...[/]"
         ),
@@ -832,12 +832,12 @@ def main() -> None:
     table.add_column("Key", style="dim")
     table.add_column("Value", style="cyan")
     env_vals = dict(dotenv_values(ENV_FILE))
-    table.add_row("AI Service",      env_vals.get("AI_SERVICE", "—"))
+    table.add_row("AI Service",      env_vals.get("AI_SERVICE", "�"))
     table.add_row("Image Provider",  env_vals.get("IMAGE_PROVIDER", "pollinations"))
     table.add_row("Language",        data.get("language", "english"))
-    table.add_row("Channel",         data.get("channel_name", "—"))
-    table.add_row("Credentials",     "✓ saved" if Path(CREDS_FILE).exists() else "✗ not found")
-    table.add_row("Telegram",        f"chat_id {data.get('chat_id', '—')}")
+    table.add_row("Channel",         data.get("channel_name", "�"))
+    table.add_row("Credentials",     "? saved" if Path(CREDS_FILE).exists() else "? not found")
+    table.add_row("Telegram",        f"chat_id {data.get('chat_id', '�')}")
     console.print(table)
     console.print()
 

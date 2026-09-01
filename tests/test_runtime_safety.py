@@ -60,13 +60,13 @@ class RuntimeSafetyTests(unittest.TestCase):
         state = {}
         result = tg._execute_confirmed_action(
             state,
-            {"type": "FORZA_ORA", "payload": "AI topic"},
+            {"type": "FORZA_ORA", "payload": "How BlackBerry Lost to Apple"},
         )
 
-        self.assertIn("pipeline immediata", result)
         self.assertTrue(state["force_run"])
         self.assertTrue(state["publish_immediately"])
-        self.assertEqual(state["topic_queue"], ["AI topic"])
+        self.assertEqual(state["topic_queue"], ["How BlackBerry Lost to Apple"])
+        self.assertTrue(result)  # confirmation message returned
 
     def test_pipeline_passes_immediate_to_upload(self):
         import importlib
@@ -77,6 +77,7 @@ class RuntimeSafetyTests(unittest.TestCase):
             "AI_SERVICE": "openrouter",
             "OPENROUTER_API_KEY": "key",
             "PEXELS_API_KEY": "pexels",
+            "SKIP_PUBLISH_GATE": "1",
         }, clear=False):
             agent = importlib.import_module("agent")
 
@@ -104,8 +105,9 @@ class RuntimeSafetyTests(unittest.TestCase):
                     calls["kwargs"] = kwargs
                     return "video123"
 
-                with patch.object(agent, "leggi_performance", return_value=[]), \
+                with patch.object(agent, "get_channel_performance", return_value=([], "none")), \
                     patch.object(agent, "calcola_strategia", return_value={}), \
+                    patch("moduli.publish_gate.run_pre_publish_gate", return_value=(True, [], [])), \
                     patch.object(agent, "genera_topic", return_value="topic"), \
                     patch.object(agent, "genera_contenuto", return_value={
                         "title": "Title",
@@ -162,21 +164,40 @@ class RuntimeSafetyTests(unittest.TestCase):
             "title": "T", "description": "D", "tags": ["a"],
             "script": "too short", "video_keywords": ["office"],
         })
+        paragraph = (
+            "BlackBerry dominated enterprise mobile because companies valued secure email. "
+            "When Apple launched the iPhone, consumers chose apps over physical keyboards. "
+            "Because developers followed users, BlackBerry's platform became irrelevant. "
+            "As a result, market share collapsed and the company pivoted too late. "
+            "The lesson is that ecosystems beat hardware features in platform shifts. "
+        )
+        good_script = paragraph * 80
         good = _json.dumps({
-            "title": "T", "description": "D", "tags": ["a"],
-            "script": "word " * 600, "video_keywords": ["office"],
+            "title": "The Fall of BlackBerry Explained",
+            "description": "D" * 250,
+            "tags": ["a"] * 12,
+            "script": good_script,
+            "video_keywords": ["blackberry phone", "iphone launch", "smartphone market"],
+            "visual_segments": [
+                {"keyword": "blackberry phone", "text_excerpt": "BlackBerry dominated"},
+            ],
+            "thumbnail_phrase": "TOO LATE",
         })
 
-        # primo tentativo corto, secondo valido → ritorna il valido
-        with patch.object(cervello, "chat_ollama", side_effect=[short, good]) as mock_chat:
-            content = cervello.genera_contenuto("topic")
+        # first attempt too short, second valid
+        with patch.object(cervello, "chat_ollama", side_effect=[short, good]) as mock_chat, \
+             patch("moduli.research.build_research_brief", return_value={"snippets": [], "prompt_block": ""}), \
+             patch("moduli.topic_history.assert_unique_topic", side_effect=lambda t, **kw: t):
+            content = cervello.genera_contenuto("How BlackBerry Lost to Apple")
         self.assertEqual(mock_chat.call_count, 2)
         self.assertGreaterEqual(len(content["script"].split()), 150)
 
-        # sempre corto → ValueError dopo 2 tentativi
-        with patch.object(cervello, "chat_ollama", side_effect=[short, short]):
+        # always short -> ValueError after max attempts
+        with patch.object(cervello, "chat_ollama", side_effect=[short, short, short]), \
+             patch("moduli.research.build_research_brief", return_value={"snippets": [], "prompt_block": ""}), \
+             patch("moduli.topic_history.assert_unique_topic", side_effect=lambda t, **kw: t):
             with self.assertRaises(ValueError):
-                cervello.genera_contenuto("topic")
+                cervello.genera_contenuto("How BlackBerry Lost to Apple")
 
     def test_common_errors_get_human_explanation(self):
         import importlib
@@ -266,13 +287,13 @@ class RuntimeSafetyTests(unittest.TestCase):
         }, clear=False):
             agent = importlib.import_module("agent")
 
-        # orari di pubblicazione manuali → trigger = publish - 3
-        state = {"videos_per_day": 2, "publish_hours_utc": [12, 20]}
+        # manual publish hours + auto_scheduling off → legacy trigger = publish - 3
+        state = {"videos_per_day": 2, "publish_hours_utc": [12, 20], "auto_scheduling": False}
         self.assertEqual(agent._get_trigger_hours(state), [9, 17])
 
-        # auto-scheduling: best_hours_utc sono orari di pubblicazione
+        # auto-scheduling: pipeline trigger is independent of publish hours
         state = {"videos_per_day": 1, "auto_scheduling": True, "best_hours_utc": [2]}
-        self.assertEqual(agent._get_trigger_hours(state), [23])
+        self.assertEqual(agent._get_trigger_hours(state), [14])
 
         # trigger espliciti (hand-edit) vincono su tutto
         state = {"videos_per_day": 1, "trigger_hours_utc": [6], "publish_hours_utc": [20]}
@@ -293,8 +314,10 @@ class RuntimeSafetyTests(unittest.TestCase):
             "AI_SERVICE": "openrouter",
             "OPENROUTER_API_KEY": "key",
             "PEXELS_API_KEY": "pexels",
+            "SKIP_PUBLISH_GATE": "1",
         }, clear=False):
-            agent = importlib.import_module("agent")
+            import importlib
+            agent = importlib.reload(importlib.import_module("agent"))
 
         with tempfile.TemporaryDirectory() as tmp:
             old_cwd = os.getcwd()
@@ -311,8 +334,9 @@ class RuntimeSafetyTests(unittest.TestCase):
                 def fake_video(_audio, _keywords, _clips, output_path, **_kw):
                     fake_file(None, output_path)
 
-                with patch.object(agent, "leggi_performance", return_value=[]), \
+                with patch.object(agent, "get_channel_performance", return_value=([], "none")), \
                     patch.object(agent, "calcola_strategia", return_value={}), \
+                    patch("moduli.publish_gate.run_pre_publish_gate", return_value=(True, [], [])), \
                     patch.object(agent, "genera_contenuto", return_value={
                         "title": "Title", "description": "Desc", "tags": ["tag"],
                         "script": "hello world", "video_keywords": ["office"],

@@ -342,6 +342,10 @@ def _execute_confirmed_action(state: dict, action: dict) -> str:
     if action_type == "FORZA_ORA":
         queue = state.get("topic_queue", [])
         if payload and (not queue or queue[0] != payload):
+            from moduli.topic_history import try_reserve_topic
+            ok, err = try_reserve_topic(payload, queue_peers=queue)
+            if not ok:
+                return f"⛔ Topic rifiutato: {_h(err)}"
             queue.insert(0, payload)
         state["topic_queue"] = queue
         state["force_run"] = True
@@ -437,12 +441,22 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False,
 
     def _add_topic(m):
         topic = m.group(1).strip()
+        from moduli.topic_history import try_reserve_topic
+        ok, err = try_reserve_topic(topic, queue_peers=queue)
+        if not ok:
+            added_topics.append(f"⛔ RIFIUTATO ({err.split(':')[0] if err else 'invalido'}): {topic}")
+            return ""
         queue.append(topic)
         added_topics.append(f"{topic} (in coda)")
         return ""
 
     def _priorita_topic(m):
         topic = m.group(1).strip()
+        from moduli.topic_history import try_reserve_topic
+        ok, err = try_reserve_topic(topic, queue_peers=queue)
+        if not ok:
+            added_topics.append(f"⛔ RIFIUTATO ({err.split(':')[0] if err else 'invalido'}): {topic}")
+            return ""
         if not queue or queue[0] != topic:
             queue.insert(0, topic)
             added_topics.append(f"{topic} (in testa — prossimo video)")
@@ -615,74 +629,88 @@ from moduli.state_io import load_state as _load_state, save_state as _save_state
 
 def _publish_hours(state: dict) -> list[int]:
     vpd = state.get("videos_per_day", 1)
-    hours = state.get("publish_hours_utc") or [20]
+    if state.get("auto_scheduling") and state.get("best_hours_utc"):
+        hours = state["best_hours_utc"]
+    else:
+        hours = state.get("publish_hours_utc") or [20]
     return sorted(hours)[:vpd]
 
 
 def _trigger_hours(state: dict) -> list[int]:
-    return sorted((h - 3) % 24 for h in _publish_hours(state))
+    from moduli.publish_scheduler import resolve_pipeline_trigger_hours
+    return resolve_pipeline_trigger_hours(state)
 
 
 def _next_schedule(state: dict):
+    """Preview next pipeline trigger and publish slot (audience-timezone aware)."""
+    from moduli.pubblica import resolve_publish_schedule
+
     now = datetime.now(timezone.utc)
     done = state.get("runs_today", {}).get(now.strftime("%Y-%m-%d"), 0)
     if done >= state.get("videos_per_day", 1):
         now = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    publish = _publish_hours(state)
-    trigger = [(h - 3) % 24 for h in publish]
-    upcoming = []
-    for idx, (trigger_hour, publish_hour) in enumerate(zip(trigger, publish)):
-        trigger_dt = now.replace(hour=trigger_hour, minute=0, second=0, microsecond=0)
-        publish_dt = now.replace(hour=publish_hour, minute=0, second=0, microsecond=0)
-        if publish_dt <= trigger_dt:
-            publish_dt += timedelta(days=1)
-        if trigger_dt <= now:
-            trigger_dt += timedelta(days=1)
-            publish_dt += timedelta(days=1)
-        upcoming.append((trigger_dt, publish_dt, idx))
-    upcoming.sort(key=lambda item: item[0])
-    return upcoming[0] if upcoming else (None, None, done)
+
+    trigger_hours = _trigger_hours(state)
+    trigger_hour = trigger_hours[done % len(trigger_hours)] if trigger_hours else 14
+    trigger_dt = now.replace(hour=trigger_hour, minute=0, second=0, microsecond=0)
+    if trigger_dt <= now:
+        trigger_dt += timedelta(days=1)
+
+    cache = state.get("_scheduler_cache") or {}
+    decision = resolve_publish_schedule(
+        state,
+        run_index=done,
+        activity=cache.get("activity"),
+        geography=cache.get("geography"),
+    )
+    publish_dt = decision.publish_at_utc
+    return trigger_dt, publish_dt, done, decision
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 <b>YouTube AI Agent attivo</b>\n\n"
-        "Produco e pubblico video ogni giorno in autonomia.\n\n"
+        "👋 <b>YouTube AI Agent is running</b>\n\n"
+        "I produce and publish videos autonomously every day.\n\n"
         "<b>📹 Pipeline:</b>\n"
-        "/status — stato attuale\n"
-        "/recap — analytics ultimi video\n"
-        "/forza — lancia pipeline subito\n"
-        "/forzaora &lt;topic&gt; — pubblica subito senza programmazione\n"
-        "/skip — salta il video di oggi\n"
-        "/setvideogiorno &lt;1-5&gt; — quanti video al giorno\n"
-        "/setpubblica &lt;ora1&gt; [ora2] — ora/e pubblicazione (UTC)\n"
-        "/autoscheduling on|off — orari automatici da analytics\n"
-        "/orari — vedi programma attuale\n"
-        "/prossimi — prossimo run e prossimo publish\n"
-        "/coda — topic in coda\n"
-        "/topic &lt;testo&gt; — aggiungi topic\n"
-        "/deltopic &lt;numero&gt; — rimuovi topic\n\n"
-        "<b>📺 Canale:</b>\n"
-        "/canale — info e statistiche\n"
-        "/setdesc &lt;testo&gt; — aggiorna descrizione\n"
-        "/video — ultimi video\n"
-        "/playlist — playlist del canale\n"
-        "/nuovaplaylist &lt;nome&gt; — crea playlist\n"
-        "/commenti &lt;videoId&gt; — leggi commenti\n\n"
-        "<b>🧠 Memoria:</b>\n"
-        "/memoria — vedi cosa ricorda\n"
-        "/dimentica &lt;n&gt; — rimuovi un ricordo\n\n"
-        "💬 Scrivi qualsiasi cosa per parlare con l'AI.\n\n"
-        "<b>Esempi:</b>\n"
-        "• <i>genera una copertina di prova</i> → thumbnail standalone\n"
-        "• <i>fai il prossimo video su X</i> → pipeline completa",
+        "/status — current status\n"
+        "/recap — analytics for recent videos\n"
+        "/forza — run pipeline now\n"
+        "/forzaora &lt;topic&gt; — publish immediately (no schedule)\n"
+        "/skip — skip today's video\n"
+        "/setvideogiorno &lt;1-5&gt; — videos per day\n"
+        "/setpubblica &lt;hour1&gt; [hour2] — publish hour(s) UTC\n"
+        "/autoscheduling on|off — auto hours from analytics\n"
+        "/strategy — learned strategy and insights\n"
+        "/learning — compact dashboard\n"
+        "/analytics — performance summary\n"
+        "/topics — recent topics and registry\n"
+        "/memory — topic memory (duplicates blocked)\n"
+        "/orari — current schedule\n"
+        "/prossimi — next pipeline run and publish time\n"
+        "/coda — topic queue\n"
+        "/topic &lt;text&gt; — add a topic\n"
+        "/deltopic &lt;number&gt; — remove a topic\n\n"
+        "<b>📺 Channel:</b>\n"
+        "/canale — channel info and stats\n"
+        "/setdesc &lt;text&gt; — update description\n"
+        "/video — recent videos\n"
+        "/playlist — channel playlists\n"
+        "/nuovaplaylist &lt;name&gt; — create playlist\n"
+        "/commenti &lt;videoId&gt; — read comments\n\n"
+        "<b>🧠 Long-term memory:</b>\n"
+        "/memoria — what the agent remembers\n"
+        "/dimentica &lt;n&gt; — forget a note\n\n"
+        "💬 Send any message to chat with the AI.\n\n"
+        "<b>Examples:</b>\n"
+        "• <i>generate a test thumbnail</i> → standalone thumbnail\n"
+        "• <i>make the next video about X</i> → full pipeline",
         parse_mode="HTML"
     )
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     state = _load_state()
-    last = state.get("last_run_date", "Mai")
+    last = state.get("last_run_date", "Never")
     queue = state.get("topic_queue", [])
     recent = state.get("recent_topics", [])
     last_video = state.get("video_ids", [None])[0]
@@ -690,29 +718,119 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     ps = state.get("pipeline_status")
     if ps:
         pct = ps.get("pct")
-        attivita = (f"🔄 In produzione — step: <b>{_h(ps.get('step', '?'))}</b>"
+        attivita = (f"🔄 In production — step: <b>{_h(ps.get('step', '?'))}</b>"
                     + (f" ({pct}%)" if pct else "")
-                    + f"\n   agg. {_h(ps.get('updated_at', ''))}")
+                    + f"\n   updated {_h(ps.get('updated_at', ''))}")
     else:
-        trigger_dt, _, _ = _next_schedule(state)
+        trigger_dt, _, _, _ = _next_schedule(state)
         if trigger_dt:
-            attivita = f"⏳ In attesa — prossima pipeline: {trigger_dt.strftime('%d/%m %H:%M UTC')}"
+            attivita = f"⏳ Waiting — next pipeline: {trigger_dt.strftime('%d/%m %H:%M UTC')}"
         else:
-            attivita = "⏳ In attesa — nessun orario configurato"
+            attivita = "⏳ Waiting — no schedule configured"
 
     msg = (
-        f"📡 <b>Status Agent</b>\n\n"
+        f"📡 <b>Agent Status</b>\n\n"
         f"{attivita}\n\n"
-        f"🗓 Ultimo run: {last}\n"
-        f"📋 Topic in coda: {len(queue)}\n"
-        f"📹 Video prodotti: {len(state.get('video_ids', []))}\n"
+        f"🗓 Last run: {last}\n"
+        f"📋 Topics in queue: {len(queue)}\n"
+        f"📹 Videos produced: {len(state.get('video_ids', []))}\n"
     )
     if last_video:
-        msg += f"🔗 Ultimo: https://youtu.be/{last_video}\n"
+        msg += f"🔗 Latest: https://youtu.be/{last_video}\n"
     if recent:
-        msg += f"\n<b>Ultimi topic:</b>\n" + "\n".join(f"• {_h(t)}" for t in recent[:5])
+        msg += f"\n<b>Recent topics:</b>\n" + "\n".join(f"• {_h(t)}" for t in recent[:5])
+
+    try:
+        from moduli.telegram_learning import build_learning_dashboard
+        profiles, insights, strategy, _source = await _fetch_learning_context(state)
+        dash = build_learning_dashboard(
+            state=state, insights=insights, profiles=profiles,
+            strategy=strategy, esc=_h,
+        )
+        msg += "\n\n" + "\n".join(dash)
+    except Exception:
+        pass
 
     await update.message.reply_text(msg, parse_mode="HTML")
+
+
+async def _fetch_learning_context(
+    state: dict,
+    *,
+    force: bool = False,
+) -> tuple[list, dict, dict, str]:
+    """Carica analytics + insights per dashboard / strategia."""
+    from moduli.strategia import analyze_performance
+    from moduli.analytics_cache import get_channel_performance
+    from moduli.performance import sync_profiles, carica_profili
+
+    loop = asyncio.get_event_loop()
+    source = "none"
+    try:
+        raw, source = await loop.run_in_executor(
+            None, lambda: get_channel_performance(n_video=10, force=force),
+        )
+        if raw and source == "api":
+            profiles = await loop.run_in_executor(None, lambda: sync_profiles(raw))
+        else:
+            profiles = await loop.run_in_executor(None, carica_profili)
+            if raw:
+                ids = {r.get("video_id") for r in raw}
+                matched = [p for p in profiles if p.get("video_id") in ids]
+                if matched:
+                    profiles = matched
+        insights = analyze_performance(
+            profiles or raw, synced_profiles=profiles or None,
+        )
+    except Exception as e:
+        profiles, insights = [], {"signals": [str(e)], "video_count": 0}
+    strategy = state.get("last_strategy") or {}
+    return profiles, insights, strategy, source
+
+
+async def cmd_learning(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    state = _load_state()
+    profiles, insights, strategy, _source = await _fetch_learning_context(state)
+    from moduli.telegram_learning import build_learning_dashboard
+    lines = build_learning_dashboard(
+        state=state, insights=insights, profiles=profiles,
+        strategy=strategy, esc=_h,
+    )
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_strategy(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    state = _load_state()
+    profiles, insights, strategy, _source = await _fetch_learning_context(state)
+    from moduli.telegram_learning import build_strategy_summary
+    lines = build_strategy_summary(
+        state=state, insights=insights, profiles=profiles,
+        strategy=strategy, esc=_h,
+    )
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_analytics(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    state = _load_state()
+    profiles, insights, _strategy, source = await _fetch_learning_context(state, force=False)
+    from moduli.telegram_learning import build_analytics_summary
+    lines = build_analytics_summary(insights=insights, profiles=profiles, esc=_h)
+    if source and source != "api":
+        lines.append(f"\n<i>Data source: {source} (cached — use /recap for live refresh)</i>")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_topics(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    state = _load_state()
+    from moduli.telegram_learning import build_topics_summary
+    lines = build_topics_summary(state=state, esc=_h)
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
+async def cmd_memory(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from moduli.telegram_learning import build_topic_memory_summary
+    lines = build_topic_memory_summary(esc=_h)
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_preferenze(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -742,21 +860,49 @@ async def cmd_setpref(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_recap(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("📊 Recupero analytics...")
+    await update.message.reply_text("📊 Recupero analytics live...")
     loop = asyncio.get_event_loop()
     try:
-        from moduli.analytics import leggi_performance
-        videos = await loop.run_in_executor(None, lambda: leggi_performance(n_video=10))
-        if not videos:
+        from moduli.analytics_cache import get_channel_performance
+        from moduli.performance import sync_profiles, score_video, carica_profili
+        raw, source = await loop.run_in_executor(
+            None, lambda: get_channel_performance(n_video=10, force=True),
+        )
+        if not raw:
             await update.message.reply_text("Nessun video trovato sul canale.")
             return
-        lines = ["📊 <b>Performance ultimi video:</b>\n"]
-        for v in videos:
-            retention = int(v.get("avg_view_duration_seconds", 0) / max(v.get("duration_seconds", 480), 1) * 100)
+        if source == "api":
+            await loop.run_in_executor(None, lambda: sync_profiles(raw))
+        profiles = await loop.run_in_executor(None, carica_profili)
+        display = [p for p in profiles if p.get("video_id") in {r.get("video_id") for r in raw}] or profiles[:10]
+        tier_emoji = {
+            "breakout": "🚀", "strong": "💪", "average": "➖", "weak": "📉", "poor": "❌",
+        }
+        lines = ["📊 <b>Performance ultimi video</b> (score normalizzato 0–100)\n"]
+        for v in display:
+            m = v.get("metrics") or v
+            retention = float(m.get("retention_percent") or 0)
+            if not retention:
+                retention = int(
+                    float(m.get("avg_view_duration_seconds", 0))
+                    / max(float(m.get("duration_seconds", 480)), 1) * 100
+                )
+            sb = v.get("score_breakdown") or {}
+            perf_score = round(score_video(v), 1)
+            tier = v.get("performance_tier", "average")
+            tier_icon = tier_emoji.get(tier, "➖")
+            vpd = sb.get("views_per_day")
+            vpd_str = f" · 📅 {vpd}/g" if vpd is not None else ""
+            meta = v.get("content_metadata") or {}
+            angle = meta.get("topic_angle") or meta.get("content_format") or ""
+            angle_str = f"\n   🎯 {_h(str(angle)[:40])}" if angle else ""
             lines.append(
-                f"▪️ <b>{_h(v['title'][:50])}</b>\n"
-                f"   👁 {v['views']} views · 👀 {v.get('impressions', 0)} impr · 📈 CTR {v.get('ctr_percent', 0)}%\n"
-                f"   ❤️ {v['likes']} · 💬 {v['comments']} · ⏱ {retention}% retention · ⏰ {int(v.get('avg_view_duration_seconds', 0))}s avg"
+                f"▪️ <b>{_h((v.get('title') or '')[:50])}</b> · {tier_icon} {tier} · ⭐ {perf_score}{vpd_str}\n"
+                f"   👁 {m.get('views', v.get('views', 0))} views · 👀 {m.get('impressions', v.get('impressions', 0))} impr"
+                f" · 📈 CTR {m.get('ctr_percent', v.get('ctr_percent', 0))}%\n"
+                f"   ❤️ {m.get('likes', v.get('likes', 0))} · 💬 {m.get('comments', v.get('comments', 0))}"
+                f" · ⏱ {int(retention)}% retention · ⏰ {int(m.get('avg_view_duration_seconds', v.get('avg_view_duration_seconds', 0)))}s avg"
+                f"{angle_str}"
             )
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
     except Exception as e:
@@ -776,6 +922,14 @@ async def cmd_forzaora(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     state = _load_state()
     if topic:
         queue = state.get("topic_queue", [])
+        from moduli.topic_history import try_reserve_topic
+        ok, err = try_reserve_topic(topic, queue_peers=queue)
+        if not ok:
+            await update.message.reply_text(
+                f"⛔ <b>Topic rifiutato</b> — pipeline non avviata.\n\n<i>{_h(err)}</i>",
+                parse_mode="HTML",
+            )
+            return
         queue.insert(0, topic)
         state["topic_queue"] = queue
     state["force_run"] = True
@@ -815,6 +969,274 @@ async def cmd_abort(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def cmd_strategia(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from moduli.strategia import storia_strategia, video_learnings, strategia_memory
+    from moduli.telegram_learning import build_learning_dashboard
+
+    state = _load_state()
+    last = state.get("last_strategy") or {}
+    profiles, insights, strategy, _source = await _fetch_learning_context(state)
+
+    lines = build_learning_dashboard(
+        state=state, insights=insights, profiles=profiles,
+        strategy=strategy or last, esc=_h,
+    )
+    lines.append("\n\n──────────────\n📈 <b>Dettaglio strategia</b>\n")
+    try:
+        from moduli.channel_confidence import confidence_from_profiles
+        conf = confidence_from_profiles(profiles)
+        lines.append(
+            f"🎯 <b>Confidence</b>: {conf.level} ({conf.video_count} video) — "
+            f"{_h(conf.optimization_mode)}"
+        )
+        lines.append(f"<i>{_h(conf.summary)}</i>\n")
+    except Exception:
+        pass
+    if last:
+        for key in ("topic_focus", "preferred_angle", "content_format", "title_style",
+                    "hook_strength", "target_minutes", "pacing", "video_style", "avoid_patterns"):
+            val = last.get(key)
+            if val:
+                lines.append(f"<b>{key}</b>: {_h(str(val)[:200])}")
+        notes = last.get("notes", "")
+        if isinstance(notes, list):
+            notes = "; ".join(str(n) for n in notes)
+        if notes:
+            lines.append(f"\n<b>notes</b>: {_h(str(notes)[:500])}")
+    else:
+        lines.append("<i>Nessuna strategia salvata — partirà al prossimo run.</i>")
+
+    if last.get("structured"):
+        st = last["structured"]
+        lines.append("\n\n📋 <b>Strategy output</b>")
+        lines.append(
+            f"Confidence: {_h(str(st.get('confidence', '?')).upper())} · "
+            f"n={st.get('sample_size', 0)} · "
+            f"explore {int(float(st.get('exploration_ratio', 0)) * 100)}%"
+        )
+        if st.get("preferred_duration"):
+            lines.append(f"Duration: {st['preferred_duration']} min")
+        if st.get("best_hours_utc"):
+            lines.append(f"Best hours UTC: {_h(str(st['best_hours_utc']))}")
+        if st.get("topic_focus"):
+            lines.append(f"Focus: {_h(', '.join(st['topic_focus'][:4]))}")
+        if st.get("winning_patterns"):
+            wins = [
+                _h((w.get('pattern') or w.get('value') or '')[:40])
+                for w in st["winning_patterns"][:3]
+            ]
+            lines.append("Winning: " + " · ".join(w for w in wins if w))
+        if st.get("avoid_patterns"):
+            lines.append(f"Avoid: {_h('; '.join(st['avoid_patterns'][:4]))}")
+        if st.get("title_patterns"):
+            tp = st["title_patterns"][0]
+            lines.append(
+                f"Title pattern: {_h(tp.get('label') or tp.get('pattern_id') or '')} "
+                f"({tp.get('outcome', '?')})"
+            )
+    elif state.get("strategy_structured"):
+        st = state["strategy_structured"]
+        lines.append("\n\n📋 <b>Strategy output</b>")
+        lines.append(f"Confidence: {_h(str(st.get('confidence', '?')).upper())} (n={st.get('sample_size', 0)})")
+
+    if insights.get("video_count"):
+        score_line = ""
+        if insights.get("avg_performance_score") is not None:
+            score_line = f" | Score medio: {insights['avg_performance_score']}/100"
+        lines.append(
+            f"\n\n📊 <b>Analytics</b> ({insights['video_count']} video)\n"
+            f"CTR medio: {insights.get('avg_ctr', 0)}% | "
+            f"Retention: {insights.get('avg_retention', 0)}% | "
+            f"Target: {insights.get('suggested_target_minutes', '?')} min{score_line}"
+        )
+        for sig in insights.get("signals", [])[:4]:
+            lines.append(f"• {_h(sig)}")
+
+    winning = insights.get("winning_patterns") or []
+    losing = insights.get("losing_patterns") or []
+    if winning:
+        lines.append("\n\n✅ <b>Pattern vincenti</b> (vs mediana canale)")
+        for wp in winning[:5]:
+            lines.append(f"• {_h(wp.get('pattern', ''))} (+{wp.get('vs_channel_median', 0)} pts)")
+    if losing:
+        lines.append("\n\n⛔ <b>Pattern perdenti</b> (vs mediana canale)")
+        for lp in losing[:5]:
+            lines.append(f"• {_h(lp.get('pattern', ''))} ({lp.get('vs_channel_median', 0)} pts)")
+
+    by_tier = insights.get("by_tier") or {}
+    tier_lines = []
+    for tier in ("breakout", "strong", "average", "weak", "poor"):
+        vids = by_tier.get(tier) or []
+        if vids:
+            tier_lines.append(f"{tier}: {len(vids)}")
+    if tier_lines:
+        lines.append("\n\n📊 <b>Classificazione</b>: " + " · ".join(tier_lines))
+
+    try:
+        from moduli.topic_diversity import diversity_stats, exploit_ratio, explore_ratio
+        ds = diversity_stats()
+        target_e = int(exploit_ratio() * 100)
+        target_x = int(explore_ratio() * 100)
+        actual = ""
+        if ds.get("total"):
+            actual = (
+                f" (attuale: exploit {int((ds.get('exploit_ratio_actual') or 0) * 100)}% · "
+                f"explore {int((ds.get('explore_ratio_actual') or 0) * 100)}%)"
+            )
+        lines.append(
+            f"\n\n🎲 <b>Topic diversity</b>: target exploit {target_e}% · explore {target_x}%"
+            f"{actual}"
+        )
+        if ds.get("recent"):
+            last_mode = ds["recent"][-1]
+            lines.append(
+                f"Ultimo: {last_mode.get('mode', '?')} — {_h((last_mode.get('topic') or '')[:60])}"
+            )
+    except Exception:
+        pass
+
+    try:
+        from moduli.title_learning import analyze_title_patterns
+        ta = analyze_title_patterns(profiles)
+        if ta.get("winning_title_patterns"):
+            lines.append("\n\n📝 <b>Title patterns vincenti</b>")
+            for wp in ta["winning_title_patterns"][:3]:
+                lines.append(
+                    f"• {_h(wp['pattern_label'])} — CTR {wp['avg_ctr']}% "
+                    f"({wp['ctr_vs_channel']:+.1f}), ret. {wp['avg_retention']}%"
+                )
+    except Exception:
+        pass
+
+    try:
+        from moduli.hook_optimization import analyze_hook_patterns
+        ha = analyze_hook_patterns(profiles)
+        if ha.get("strategy_recommendations"):
+            lines.append("\n\n🎣 <b>Hook optimization</b>")
+            for rec in ha["strategy_recommendations"][:3]:
+                lines.append(f"• {_h(rec)}")
+        if ha.get("winning_hook_patterns"):
+            for wp in ha["winning_hook_patterns"][:2]:
+                detail = f"+{wp['retention_vs_channel']:.0f}% retention"
+                if wp.get("retention_30s_vs_channel") is not None:
+                    detail = f"+{wp['retention_30s_vs_channel']:.0f}% @30s"
+                lines.append(f"  <i>{_h(wp['hook_label'])} ({detail})</i>")
+    except Exception:
+        pass
+
+    try:
+        from moduli.script_optimization import analyze_script_optimization
+        sa = analyze_script_optimization(profiles)
+        if sa.get("recommendations"):
+            lines.append("\n\n📜 <b>Script optimization</b>")
+            if sa.get("sufficient_evidence"):
+                for rec in sa["recommendations"][:3]:
+                    lines.append(
+                        f"• {_h(rec['dimension'])}={rec['value']} "
+                        f"(+{rec['retention_vs_channel']:.0f}% ret., n={rec['sample_size']})"
+                    )
+            else:
+                lines.append("<i>Dati insufficienti — nessun cambio strutturale consigliato</i>")
+    except Exception:
+        pass
+
+    try:
+        from moduli.thumbnail_learning import analyze_thumbnail_patterns
+        tha = analyze_thumbnail_patterns(profiles)
+        if tha.get("has_data"):
+            lines.append("\n\n🖼 <b>Thumbnail learning</b>")
+            if tha.get("sufficient_evidence") and tha.get("winning_traits"):
+                for wt in tha["winning_traits"][:3]:
+                    lines.append(
+                        f"• {_h(wt['dimension'])}={wt['value']} — CTR {wt['avg_ctr']}% "
+                        f"({wt['ctr_vs_channel']:+.1f}, n={wt['sample_size']})"
+                    )
+            else:
+                lines.append(
+                    "<i>Dati insufficienti per affermare stili vincenti</i>"
+                )
+    except Exception:
+        pass
+
+    try:
+        from moduli.publish_optimization import publish_guidance_text
+        pg = publish_guidance_text(profiles)
+        if pg and "insufficient" not in pg.lower():
+            lines.append(f"\n\n🕐 <b>Publish timing</b>\n{_h(pg)}")
+    except Exception:
+        pass
+
+    try:
+        from moduli.experimentation import experiment_stats, format_classification
+        es = experiment_stats()
+        if es.get("total_records"):
+            lines.append("\n\n🧪 <b>Experimentation</b>")
+            lines.append(
+                f"Pending: {es.get('pending_experiments', 0)} · "
+                f"Promoted: {es.get('promoted_experiments', 0)} · "
+                f"Demoted: {es.get('demoted_experiments', 0)}"
+            )
+            for rec in (es.get("recent") or [])[-4:]:
+                lines.append(f"• {_h(format_classification(rec))} "
+                             f"<i>[{rec.get('status', 'pending')}]</i>")
+            for wp in (es.get("winning_pool") or [])[:2]:
+                lines.append(f"  ✅ pool: {_h(wp.get('label', ''))}")
+    except Exception:
+        pass
+
+    stored = profiles[:3]
+    if stored:
+        lines.append("\n\n🏆 <b>Top profili performance</b>")
+        for p in stored:
+            m = p.get("metrics") or {}
+            meta = p.get("content_metadata") or {}
+            lines.append(
+                f"• {_h((p.get('title') or '')[:35])} — "
+                f"{p.get('performance_tier', '?')} · "
+                f"⭐ {round((p.get('performance_score') or 0) * 100, 1)} · "
+                f"{m.get('views', 0)} views · CTR {m.get('ctr_percent', 0)}%"
+            )
+            if meta.get("title_pattern") or meta.get("thumbnail_concept"):
+                lines.append(
+                    f"  <i>{_h(meta.get('title_pattern', ''))} · "
+                    f"{_h(meta.get('thumbnail_concept', '')[:30])}</i>"
+                )
+
+    learnings = video_learnings()[-3:]
+    if learnings:
+        lines.append("\n\n🔄 <b>Ultimi video + strategia usata</b>")
+        for entry in learnings:
+            lines.append(f"• {_h(entry.get('title', '')[:40])} ({entry.get('date', '')})")
+
+    hist = storia_strategia()
+    if hist:
+        lines.append(f"\n<i>Storia strategie: {len(hist)} entry in strategia_storia.json</i>")
+
+    mem = strategia_memory()
+    if mem.get("cycles_recorded"):
+        lines.append(
+            f"\n\n🧠 <b>Memoria strategica</b> ({mem['cycles_recorded']} cicli, "
+            f"agg. {mem.get('updated_at', '?')})"
+        )
+        for label, key in (
+            ("Successi storici", "historical_winning_patterns"),
+            ("Fallimenti storici", "historical_losing_patterns"),
+        ):
+            items = mem.get(key) or []
+            if items:
+                lines.append(f"\n<b>{label}</b>:")
+                for item in items[:3]:
+                    name = item.get("pattern") or item.get("value") or item.get("topic") or "?"
+                    conf = item.get("confidence_level", "?")
+                    lines.append(f"• {_h(str(name)[:60])} (conf. {conf})")
+        if mem.get("recommended_duration_minutes"):
+            lines.append(f"\nDurata consigliata: {mem['recommended_duration_minutes']} min")
+        if mem.get("recommended_publish_hours_utc"):
+            lines.append(f"Orari UTC: {mem['recommended_publish_hours_utc']}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def cmd_coda(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     state = _load_state()
     queue = state.get("topic_queue", [])
@@ -833,6 +1255,16 @@ async def cmd_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     state = _load_state()
     queue = state.get("topic_queue", [])
+    from moduli.topic_history import try_reserve_topic
+    ok, err = try_reserve_topic(text, queue_peers=queue)
+    if not ok:
+        label = "duplicato" if "duplicato" in (err or "").lower() else "qualità"
+        await update.message.reply_text(
+            f"⛔ <b>Topic rifiutato</b> — {label}.\n\n"
+            f"<i>{_h(err)}</i>",
+            parse_mode="HTML",
+        )
+        return
     queue.append(text)
     state["topic_queue"] = queue
     _save_state(state)
@@ -887,35 +1319,133 @@ async def cmd_autoscheduling(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
     _save_state(state)
     if arg == "on":
         await update.message.reply_text(
-            "🤖 <b>Auto-scheduling attivo</b>\n\n"
-            "L'agente analizzerà le analytics e sceglierà automaticamente gli orari migliori per pipeline e pubblicazione.",
+            "🤖 <b>Auto-scheduling ON</b>\n\n"
+            "Publish time is calculated from YouTube viewer activity (when enough data exists).\n"
+            "Pipeline trigger stays independent (default 14:00 UTC).",
             parse_mode="HTML"
         )
     else:
         await update.message.reply_text("⏹ Auto-scheduling disattivato. Orari manuali attivi.")
 
 
+async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    from moduli.shorts.config import load_config
+    from moduli.shorts.state import load_state as load_shorts_state, runs_today, save_state
+    from moduli.shorts.scheduler import next_production_slots, production_hours_local, slot_label
+
+    args = (ctx.args or [])
+    sub = args[0].lower() if args else ""
+    cfg = load_config()
+    state = load_shorts_state()
+
+    if sub == "on":
+        state["enabled"] = True
+        save_state(state)
+        await update.message.reply_text("📱 Shorts pipeline enabled.")
+        return
+    if sub == "off":
+        state["enabled"] = False
+        save_state(state)
+        await update.message.reply_text("📱 Shorts pipeline disabled.")
+        return
+
+    if sub == "today":
+        rows = state.get("today_shorts") or []
+        if not rows:
+            await update.message.reply_text("No Shorts produced today yet.")
+            return
+        lines = ["📱 <b>Today's Shorts</b>\n"]
+        for r in rows:
+            vid = r.get("video_id", "")
+            url = f"https://youtube.com/shorts/{vid}" if vid else "—"
+            lines.append(f"• <b>{html.escape(str(r.get('title', ''))[:50])}</b>\n  {url}")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if sub == "next":
+        from moduli.shorts.scheduler import next_production_slots, slot_label
+
+        lines = ["📱 <b>Next Shorts production slots</b>\n"]
+        for row in next_production_slots(cfg):
+            lines.append(
+                f"  {html.escape(slot_label(row['slot']).title())}: "
+                f"{html.escape(row['local_time'])}"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if sub == "analytics":
+        from moduli.shorts.profiles import load_profiles
+        profiles = [p for p in load_profiles() if p.get("content_type") == "short"][:10]
+        if not profiles:
+            await update.message.reply_text("No Shorts analytics yet.")
+            return
+        lines = ["📱 <b>Recent Shorts performance</b>\n"]
+        for p in profiles:
+            m = p.get("metrics") or {}
+            lines.append(
+                f"• {html.escape(str(p.get('title', ''))[:40])}\n"
+                f"  👁 {m.get('views', 0)} views"
+            )
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if sub == "strategy":
+        from moduli.shorts.strategy import guidance_block, load_strategy
+        strat = load_strategy()
+        await update.message.reply_text(
+            f"📱 <b>Shorts strategy</b>\n\n<pre>{html.escape(guidance_block(strat))}</pre>",
+            parse_mode="HTML",
+        )
+        return
+
+    from moduli.shorts.scheduler import next_production_slots, production_hours_local, slot_label
+
+    # Default status
+    done = runs_today(state)
+    hours = production_hours_local(cfg)
+    enabled = cfg.enabled and state.get("enabled", True)
+    last_batch = state.get("last_batch_at") or "never"
+    status = state.get("pipeline_status") or {}
+    step = status.get("step", "idle")
+    slot_lines = [
+        f"  {slot_label(i).title()}: {h:02d}:00 {cfg.timezone}"
+        for i, h in enumerate(hours[: cfg.per_day])
+    ]
+    await update.message.reply_text(
+        f"📱 <b>Shorts status</b>\n\n"
+        f"Enabled: {'ON' if enabled else 'OFF'}\n"
+        f"Today: {done}/{cfg.per_day}\n"
+        f"Production ({html.escape(cfg.timezone)}):\n"
+        + "\n".join(slot_lines)
+        + f"\nLast run: {html.escape(str(last_batch))}\n"
+        f"Pipeline: {html.escape(str(step))}\n\n"
+        f"Commands: /shorts on|off|today|next|analytics|strategy",
+        parse_mode="HTML",
+    )
+
+
 async def cmd_orari(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     state = _load_state()
     vpd = state.get("videos_per_day", 1)
-    publish = _publish_hours(state)
-    trigger = [(h - 3) % 24 for h in publish]
+    trigger = _trigger_hours(state)
     auto = state.get("auto_scheduling", False)
     done = state.get("runs_today", {}).get(
         datetime.now(timezone.utc).strftime("%Y-%m-%d"), 0
     )
+    last_sched = state.get("last_schedule_decision") or {}
 
-    trigger_str = "\n".join(
-        f"  {i+1}. Pipeline alle {h:02d}:00 UTC → pubblica alle "
-        f"{f'{publish[i]:02d}' if i < len(publish) else '?'}:00 UTC"
-        for i, h in enumerate(trigger)
-    )
+    trigger_str = "\n".join(f"  {i+1}. Pipeline at {h:02d}:00 UTC" for i, h in enumerate(trigger))
+    publish_line = last_sched.get("local_publish_label") or "18:00 Asia/Kolkata (default)"
+    conf = last_sched.get("confidence", "LOW")
     await update.message.reply_text(
-        f"📅 <b>Programma attuale</b>\n\n"
-        f"📹 Video al giorno: {vpd}\n"
-        f"✅ Prodotti oggi: {done}/{vpd}\n"
+        f"📅 <b>Current schedule</b>\n\n"
+        f"📹 Videos per day: {vpd}\n"
+        f"✅ Produced today: {done}/{vpd}\n"
         f"🤖 Auto-scheduling: {'ON' if auto else 'OFF'}\n\n"
-        f"{trigger_str}",
+        f"<b>Pipeline trigger (UTC):</b>\n{trigger_str}\n\n"
+        f"<b>Next publish slot:</b>\n  {html.escape(str(publish_line))}\n"
+        f"📊 Confidence: {html.escape(str(conf))}",
         parse_mode="HTML"
     )
 
@@ -927,28 +1457,34 @@ async def cmd_prossimi(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     now = datetime.now(timezone.utc)
     done = state.get("runs_today", {}).get(now.strftime("%Y-%m-%d"), 0)
     remaining = max(0, vpd - done)
-    trigger_dt, publish_dt, idx = _next_schedule(state)
-    next_topic = queue[0] if queue else "generato automaticamente"
+    trigger_dt, publish_dt, idx, decision = _next_schedule(state)
+    next_topic = queue[0] if queue else "auto-generated"
     if trigger_dt is None:
-        await update.message.reply_text("Nessun orario configurato.")
+        await update.message.reply_text("No schedule configured.")
         return
     await update.message.reply_text(
-        "⏭️ <b>Prossimi eventi</b>\n\n"
-        f"🎬 Prossima pipeline: {trigger_dt.strftime('%d/%m/%Y %H:%M UTC')}\n"
-        f"📅 Prossima pubblicazione: {publish_dt.strftime('%d/%m/%Y %H:%M UTC')}\n"
-        f"📹 Video rimasti oggi: {remaining}/{vpd}\n"
-        f"📌 Prossimo topic: <i>{html.escape(next_topic)}</i>",
+        "⏭️ <b>Upcoming events</b>\n\n"
+        f"🎬 Next pipeline: {trigger_dt.strftime('%d/%m/%Y %H:%M UTC')}\n"
+        f"📅 Next publish: {decision.local_publish_label}\n"
+        f"🌍 UTC: {decision.utc_label}\n"
+        f"📊 Confidence: {decision.confidence}"
+        + (" (fallback)" if decision.fallback_used else "")
+        + f"\n\n📹 Videos left today: {remaining}/{vpd}\n"
+        f"📌 Next topic: <i>{html.escape(next_topic)}</i>",
         parse_mode="HTML",
     )
 
 
 async def cmd_setpubblica(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not ctx.args:
+        from moduli.publish_scheduler import load_scheduler_config
+        cfg = load_scheduler_config()
         await update.message.reply_text(
-            "Uso: /setpubblica &lt;ora1&gt; [ora2 ...]\n"
-            "Esempio: /setpubblica 14 → 1 video alle 14:00 UTC\n"
-            "Esempio: /setpubblica 12 20 → 1° video alle 12:00, 2° alle 20:00 UTC\n\n"
-            "Il trigger di produzione viene calcolato automaticamente 3 ore prima di ciascun orario.",
+            "Usage: /setpubblica &lt;hour1&gt; [hour2 ...]\n"
+            f"Example: /setpubblica 18 → 1 video at 18:00 {cfg.default_publish_timezone}\n"
+            f"Example: /setpubblica 12 20 → 1st at 12:00, 2nd at 20:00 {cfg.default_publish_timezone}\n\n"
+            "Disables auto-scheduling. Pipeline trigger stays on PIPELINE_TRIGGER_HOURS (default 14 UTC).\n"
+            "YouTube receives an absolute publishAt timestamp — not your PC clock.",
             parse_mode="HTML"
         )
         return
@@ -957,19 +1493,23 @@ async def cmd_setpubblica(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> Non
         if any(not 0 <= o <= 23 for o in ore):
             raise ValueError
     except ValueError:
-        await update.message.reply_text("Ore non valide. Usa numeri tra 0 e 23.")
+        await update.message.reply_text("Invalid hours. Use numbers between 0 and 23.")
         return
     ore = sorted(set(ore))
     state = _load_state()
+    state["publish_hours_local"] = ore
     state["publish_hours_utc"] = ore
-    # cancella trigger_hours_utc espliciti: la produzione deriva sempre dalla pubblicazione
+    state["auto_scheduling"] = False
     state.pop("trigger_hours_utc", None)
     _save_state(state)
-    trigger_ore = [(o - 3) % 24 for o in ore]
-    lines = [f"  Video {i+1}: produzione alle <b>{t:02d}:00</b>, pubblicazione alle <b>{p:02d}:00</b> UTC"
-             for i, (t, p) in enumerate(zip(trigger_ore, ore))]
+    from moduli.publish_scheduler import load_scheduler_config
+    tz = load_scheduler_config().default_publish_timezone
+    lines = [
+        f"  Video {i+1}: publish at <b>{p:02d}:00</b> {tz}"
+        for i, p in enumerate(ore)
+    ]
     await update.message.reply_text(
-        "✅ Orari aggiornati:\n" + "\n".join(lines),
+        "✅ Publish hours updated (audience local time):\n" + "\n".join(lines),
         parse_mode="HTML"
     )
 
@@ -1389,8 +1929,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             try:
                 from moduli.cervello import genera_contenuto
                 from moduli.strategia import calcola_strategia
+                from moduli.analytics_cache import get_channel_performance
                 def _gen_script(topic=payload):
-                    strat = calcola_strategia([])
+                    perf, _src = get_channel_performance(n_video=10, force=False)
+                    strat = calcola_strategia(perf)
                     return genera_contenuto(topic, strategy=strat)
                 content = await loop.run_in_executor(None, _gen_script)
                 script_msg = (
@@ -1462,11 +2004,18 @@ def start_bot() -> threading.Thread | None:
         app.add_handler(CommandHandler("conferma", _authorized(cmd_conferma)))
         app.add_handler(CommandHandler("annulla", _authorized(cmd_annulla)))
         app.add_handler(CommandHandler("coda", _authorized(cmd_coda)))
+        app.add_handler(CommandHandler("strategia", _authorized(cmd_strategia)))
+        app.add_handler(CommandHandler("strategy", _authorized(cmd_strategy)))
+        app.add_handler(CommandHandler("learning", _authorized(cmd_learning)))
+        app.add_handler(CommandHandler("analytics", _authorized(cmd_analytics)))
+        app.add_handler(CommandHandler("topics", _authorized(cmd_topics)))
+        app.add_handler(CommandHandler("memory", _authorized(cmd_memory)))
         app.add_handler(CommandHandler("topic", _authorized(cmd_topic)))
         app.add_handler(CommandHandler("deltopic", _authorized(cmd_deltopic)))
         app.add_handler(CommandHandler("setvideogiorno", _authorized(cmd_setvideogiorno)))
         app.add_handler(CommandHandler("autoscheduling", _authorized(cmd_autoscheduling)))
         app.add_handler(CommandHandler("orari", _authorized(cmd_orari)))
+        app.add_handler(CommandHandler("shorts", _authorized(cmd_shorts)))
         app.add_handler(CommandHandler("prossimi", _authorized(cmd_prossimi)))
         app.add_handler(CommandHandler("setpubblica", _authorized(cmd_setpubblica)))
         app.add_handler(CommandHandler("canale", _authorized(cmd_canale)))

@@ -10,7 +10,7 @@ from moduli.asset import scarica_clip
 from moduli.montaggio import monta_video
 from moduli.thumbnail import genera_thumbnail
 from moduli.pubblica import pubblica_video
-from moduli.analytics import leggi_performance
+from moduli.analytics_cache import get_channel_performance
 from moduli.strategia import calcola_strategia
 
 AUDIO_PATH = "output/narration.mp3"
@@ -22,12 +22,12 @@ def run():
     os.makedirs("output", exist_ok=True)
 
     print("=== [Analytics] Reading channel performance ===")
-    try:
-        performance = leggi_performance(n_video=5)
-        print(f"  {len(performance)} videos analyzed")
-    except Exception as e:
-        print(f"  Skipped (new channel): {e}")
-        performance = []
+    performance, source = get_channel_performance(n_video=5, force=False)
+    if performance:
+        print(f"  {len(performance)} videos analyzed ({source})")
+    else:
+        from moduli.strategia import ANALYTICS_UNAVAILABLE_NOTE
+        print(f"  {ANALYTICS_UNAVAILABLE_NOTE}")
 
     print("=== [Strategy] Adapting strategy ===")
     strategy = calcola_strategia(performance)

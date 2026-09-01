@@ -336,7 +336,8 @@ def _draw_title(img: Image.Image, title: str,
 def genera_thumbnail(title: str, output_path: str, mood: str = None,
                      style: str = None, thumbnail_description: str = None,
                      thumbnail_phrase: str = None,
-                     thumbnail_font_size: str = None) -> None:
+                     thumbnail_font_size: str = None,
+                     strategy: dict = None) -> None:
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     try:
         from moduli.preferenze import carica as _carica_pref
@@ -349,6 +350,19 @@ def genera_thumbnail(title: str, output_path: str, mood: str = None,
         style = _pref.get("stile_thumbnail") or None
     prompt = _build_ai_prompt(title, mood=mood, style=style,
                               thumbnail_description=thumbnail_description)
+    if strategy:
+        try:
+            from moduli.avoid_patterns import find_avoid_match, collect_avoid_patterns
+            patterns = collect_avoid_patterns(strategy)
+            hit = find_avoid_match(prompt, patterns) or find_avoid_match(thumbnail_phrase or "", patterns)
+            if hit:
+                print(
+                    f"[thumbnail] Prompt matches avoid pattern '{hit}' — using generic visual fallback",
+                    flush=True,
+                )
+                prompt = _build_ai_prompt(title, mood=mood, style=style, thumbnail_description=None)
+        except Exception:
+            pass
 
     # Catena di fallback: provider configurato -> altri AI -> gradiente locale.
     # Garantisce che una copertina venga SEMPRE prodotta (mai "non fa niente").

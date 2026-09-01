@@ -3,6 +3,7 @@ import json
 import random
 import re
 from datetime import datetime
+
 from moduli.ai_client import chat_ollama
 
 # Pool di "leve" creative: ad ogni run ne peschiamo una a caso per spingere il
@@ -47,31 +48,90 @@ _SUBTHEMES = [
 
 TOPIC_PROMPT = """You are a viral YouTube content strategist for a tech/AI channel.
 
+=== CONTEXT ===
 Today's date: {current_date}
-Current strategy guidance: {strategy_notes}
-Topic focus: {topic_focus}
+
+=== CURRENT STRATEGY ===
+{strategy_block}
+
+=== WINNING PATTERNS (repeat these categories/formats — but with a NEW subject) ===
+{winning_block}
+
+=== LOSING PATTERNS (do NOT imitate these) ===
+{losing_block}
+
+=== AVOID PATTERNS (MANDATORY) ===
+{avoid_block}
+
+=== CURRENT TRENDS (timely inspiration only — do not copy headlines verbatim) ===
 {trending_block}
-For THIS video, lean into:
-- Sub-theme to explore: {subtheme}
+
+=== EXPLORATION / EXPLOITATION GUIDANCE ===
+{diversity_block}
+
+=== ANALYTICS LEARNING (channel-relative — do not ignore) ===
+{analytics_learning_block}
+
+Creative levers for this attempt:
+- Sub-theme: {subtheme}
 - Creative angle: {angle}
 - Content format: {fmt}
 
-Generate ONE trending topic for a YouTube video about AI or technology.
-Base your suggestion on what is relevant and trending as of {current_date}.
-Use the trending news above as inspiration for a timely, high-interest angle — not a copy.
-Make it clearly DIFFERENT from the recent topics below — new subject, new framing.
-Avoid repeating these recent topics: {recent_topics}
-Reply with ONLY the topic as a short phrase (3-7 words). No explanation, no punctuation."""
+=== CHANNEL TOPIC HISTORY (already published — permanently banned) ===
+Every topic below has been covered on this channel. You must NOT reuse the same underlying story, entity, or narrative arc — even with different wording:
+{historical_topics}
 
-CONTENT_PROMPT = """You are a viral YouTube scriptwriter for a tech/AI channel.
+Also avoid these recent pipeline topics: {recent_topics}
+
+=== REJECTED THIS SESSION (failed programmatic duplicate check) ===
+{rejected_block}
+
+=== YOUR TASK ===
+Generate a topic that has NEVER been covered before on this channel and is NOT semantically similar to any historical topic listed above.
+This must be a genuinely NEW subject: a different company, entity, event, story arc, and core claim.
+Do NOT rephrase, remix, or narrow an existing historical topic.
+Do NOT output a variation of anything in the rejected list.
+Do NOT simply pick "another AI topic" — pick a specific, concrete, novel story.
+
+{category_reuse_rule}
+
+Output rules:
+- Exactly 3-12 words
+- A concrete subject (specific company, product, person, event, or story)
+- NO explanations, reasoning, markdown, or JSON — topic phrase ONLY
+
+Reply with ONLY the topic phrase. No explanation, no punctuation."""
+
+CONTENT_PROMPT = """You are an expert documentary narrator for a tech/business YouTube channel.
 Today's date: {current_date}
 Create a complete video about: {topic}
 
+{research_block}
+
+{writing_rules_block}
+
+{narrative_structure_block}
+
 Strategy guidance:
 - Title style: {title_style}
+{title_guidance_block}
+{hook_guidance_block}
+{script_guidance_block}
+{subscriber_guidance_block}
 - Tone: {tone}
 - Hook strength: {hook_strength}
+- Script structure: {script_structure}
+- Pacing: {pacing}
+- Video style: {video_style}
 - Notes: {strategy_notes}
+{analytics_learning_block}
+{avoid_block}
+
+VIEWER VALUE (mandatory):
+- Answer: what does the viewer KNOW or UNDERSTAND after watching that they did not before?
+- Deliver concrete facts, context, WHY things happened, consequences, and memorable insights.
+- Do NOT merely introduce a topic, repeat headlines, or create curiosity without payoff.
+- The ending must provide a satisfying takeaway — not a generic subscribe plea.
 
 Target duration: {target_minutes} minutes = ~{target_words} words
 Language: write title, description, tags and script entirely in {language}.
@@ -79,130 +139,595 @@ Language: write title, description, tags and script entirely in {language}.
 Reply ONLY with valid JSON, exact structure:
 {{
   "title": "Compelling title, max 70 chars",
-  "mood": "ONE word matching the video's emotional tone: epic | chill | mysterious | upbeat | tense",
-  "thumbnail_phrase": "2-3 words MAX, ALL CAPS, bold visual hook for the thumbnail — never more than 3 words, never cut off",
-  "thumbnail_font_size": "ONE letter: A (very large, best for 2 words), B (large, 2 words), C (medium, 2-3 words, default), D (smaller, 3 words)",
-  "description": "SEO-optimized description, 200-300 words, include keywords naturally",
-  "tags": ["tag1", "tag2", "tag3"],
-  "script": "Full narration. Engaging, clear, conversational. Exactly {target_words} words. No headers or sections, flowing prose.",
-  "video_keywords": [
-    "AI neural network visualization",
-    "futuristic city technology",
-    "scientist working computer"
+  "mood": "ONE word: epic | chill | mysterious | upbeat | tense",
+  "thumbnail_phrase": "2-3 words MAX, ALL CAPS — complementary to title, NOT a repeat of title words",
+  "thumbnail_font_size": "ONE letter: A | B | C | D",
+  "description": "SEO description, 200-300 words",
+  "tags": ["tag1", "tag2"],
+  "script": "Full narration. Natural, intelligent, conversational human voice. Exactly {target_words} words. Flowing spoken prose — connected sentences, no headers, no line-break pacing.",
+  "video_keywords": ["specific visual search phrase", "..."],
+  "visual_segments": [
+    {{"text_excerpt": "first ~40 words of narration this visual covers", "keyword": "specific stock footage search phrase", "visual_type": "stock|chart|archival|product"}}
   ],
-  "thumbnail_description": "Ultra-detailed image generation prompt for FLUX.1 diffusion model. Must be ONE paragraph, 80-120 words. Describe: exact scene composition, foreground subject with precise visual details (clothing, pose, expression, materials), background environment (architecture, lighting, atmosphere, depth), color palette (specific hues, contrast, saturation), lighting setup (direction, quality, color temperature, shadows), cinematic style, camera angle, lens feel. Professional YouTube thumbnail aesthetic, bold visual impact, 16:9 landscape orientation. NO text, logos, watermarks, or words of any kind — pure visual only. Example depth: 'Close-up photorealistic render of a humanoid robot with brushed titanium face and glowing cyan eye lenses, emerging from a dark server room filled with blue neon-lit racks, volumetric fog drifting at ankle level, dramatic rim lighting from the left casting sharp shadows, deep blacks and electric blue highlights, ultra-sharp detail, 85mm portrait lens perspective, cinematic anamorphic flare.'"
+  "thumbnail_description": "Image prompt for thumbnail. 80-120 words. NO text in image."
 }}
 
+{thumbnail_guidance_block}
+
 Rules:
-- title: follow the title_style guidance above
-- mood: exactly one of epic, chill, mysterious, upbeat, tense — drives background music and thumbnail style
-- thumbnail_phrase: EXACTLY 2-3 words, ALL CAPS, bold hook — never more than 3 words
-- thumbnail_font_size: A if 2 short words, B if 2 longer words, C if 3 words (default), D if 3 long words
-- tags: 12-15 relevant tags
-- script: exactly {target_words} words, engaging pace, no bullet points
-- video_keywords: 12-18 unique English phrases describing stock video scenes (2-4 words each, concrete and visual)
-- thumbnail_description: ultra-detailed FLUX.1 prompt as described above, always present
+- title: follow title_style; NEVER use AVOID patterns; must be fulfilled by the script
+- thumbnail_phrase: complements title (e.g. title 'How Nokia Lost the War' + thumbnail 'TOO LATE')
+- script OPENING: follow hook_guidance_block — no slow generic setup if retention data says viewers drop early
+- Choose narrative structure appropriate to topic — do not force identical template every video
+- video_keywords: 12-18 English phrases, SPECIFIC to this story (not generic AI robots unless discussing AI)
+- visual_segments: 8-15 segments aligned to script beats; keywords must match what is being SAID
+- Do NOT invent statistics, quotes, dates, or events — use research brief or well-known public facts
+- Mark uncertainty in narration when facts are disputed
 """
+
+WRITING_RULES_BLOCK = """HUMAN WRITING RULES (avoid AI-sounding scripts):
+- Write for SPOKEN delivery — the script will be read by TTS; it must sound natural aloud
+- Vary sentence length and structure naturally; connect ideas with and/but/because/so
+- NO staccato stacks of ultra-short sentences (they create dead-air gaps in TTS)
+- NO: "In today's rapidly evolving world", excessive rhetorical questions, "But here's the thing",
+  "Imagine...", fake excitement, robotic transitions, "Let's dive in", repetitive summaries
+- YES: confident opinions when evidence supports them; uncertainty when facts are uncertain
+- One natural CTA near the end at most — never desperate subscribe begging
+- Write like a knowledgeable creator explaining to another person — not a Wikipedia article"""
+
+NARRATIVE_STRUCTURES = (
+    "story → conflict → turning point → lesson",
+    "problem → explanation → solution",
+    "timeline → causes → consequences",
+    "mystery → investigation → reveal",
+    "claim → evidence → counterpoint → conclusion",
+    "comparison → evidence → verdict",
+    "case study → failure → lesson",
+)
+
+
+def _strategy_block(strategy: dict) -> str:
+    """Blocco strategia corrente per il prompt topic."""
+    lines: list[str] = []
+    for key, label in (
+        ("topic_focus", "Topic focus"),
+        ("preferred_angle", "Preferred angle"),
+        ("content_format", "Content format"),
+        ("title_style", "Title style"),
+        ("hook_strength", "Hook strength"),
+        ("target_minutes", "Target duration (min)"),
+        ("pacing", "Pacing"),
+        ("video_style", "Video style"),
+        ("tone", "Tone"),
+        ("avoid_patterns", "Avoid patterns"),
+    ):
+        val = strategy.get(key)
+        if val is not None and str(val).strip():
+            lines.append(f"- {label}: {str(val).strip()[:200]}")
+    notes = strategy.get("notes", "")
+    if isinstance(notes, list):
+        notes = "; ".join(str(n) for n in notes)
+    if notes and str(notes).strip():
+        lines.append(f"- Notes: {str(notes).strip()[:500]}")
+    return "\n".join(lines) if lines else "- Standard tech/AI channel approach"
+
+
+def _pattern_lines(patterns: list, label_key: str = "pattern") -> list[str]:
+    lines: list[str] = []
+    for p in patterns or []:
+        if not isinstance(p, dict):
+            val = str(p).strip()
+            if val:
+                lines.append(f"- {val[:120]}")
+            continue
+        pat = (p.get(label_key) or p.get("value") or "").strip()
+        if not pat:
+            continue
+        vs = p.get("vs_channel_median")
+        suffix = f" ({vs:+g} pts vs channel median)" if vs is not None else ""
+        lines.append(f"- [category/format] {pat[:120]}{suffix}")
+    return lines
+
+
+def _winning_patterns_block(strategy: dict) -> str:
+    lines = _pattern_lines(strategy.get("_winning_patterns") or [])
+    try:
+        from moduli.strategy_memory import memory_for_llm
+        mem = memory_for_llm()
+        for item in (mem.get("historical_winning_patterns") or [])[:4]:
+            if isinstance(item, dict):
+                pat = (item.get("pattern") or item.get("value") or "").strip()
+            else:
+                pat = str(item).strip()
+            if pat and f"- [category/format] {pat[:120]}" not in lines:
+                lines.append(f"- [category/format] {pat[:120]} (historical)")
+        for fmt in (mem.get("successful_formats") or [])[:2]:
+            val = fmt.get("value") if isinstance(fmt, dict) else str(fmt)
+            if val and val.strip():
+                lines.append(f"- Successful format: {val.strip()[:80]}")
+    except Exception:
+        pass
+    if not lines:
+        return "- (no winning patterns yet — stay on-brand for tech/AI)"
+    return "\n".join(dict.fromkeys(lines))
+
+
+def _losing_patterns_block(strategy: dict, pref: dict) -> str:
+    lines = _pattern_lines(strategy.get("_losing_patterns") or [])
+    evitare = pref.get("argomenti_evitare") or []
+    if evitare:
+        lines.append(f"- User banned subjects: {', '.join(str(e) for e in evitare[:8])}")
+    recent_avoid = strategy.get("_recent_underperformers") or []
+    if recent_avoid:
+        lines.append(
+            "- Underperforming titles to NOT imitate: "
+            + ", ".join(str(t) for t in recent_avoid[:5])
+        )
+    try:
+        from moduli.strategy_memory import memory_for_llm
+        mem = memory_for_llm()
+        for item in (mem.get("historical_losing_patterns") or [])[:4]:
+            if isinstance(item, dict):
+                pat = (item.get("pattern") or item.get("value") or "").strip()
+            else:
+                pat = str(item).strip()
+            if pat:
+                lines.append(f"- {pat[:120]} (historical failure)")
+    except Exception:
+        pass
+    if not lines:
+        return "- (none identified)"
+    return "\n".join(dict.fromkeys(lines))
+
+
+def _avoid_block(strategy: dict, pref: dict) -> str:
+    from moduli.avoid_patterns import avoid_block_for_content
+    return avoid_block_for_content(strategy, pref)
+
+
+def _topic_avoid_block(strategy: dict, pref: dict) -> str:
+    from moduli.avoid_patterns import avoid_prompt_section
+    block = avoid_prompt_section(strategy, pref, stage="topic")
+    return block or "- (none — follow losing patterns and channel history)"
+
+
+def _rejected_topics_block(
+    rejected: list[str],
+    force_category: bool = False,
+    subtheme: str = "",
+) -> str:
+    lines: list[str] = []
+    for topic in rejected[-8:]:
+        if topic and topic.strip():
+            lines.append(f"- {topic.strip()}")
+    if force_category and subtheme:
+        lines.append(
+            f"- MANDATORY category shift: explore sub-theme «{subtheme}» "
+            "(must not overlap any historical entity or story arc)"
+        )
+    if not lines:
+        return "- (none this session)"
+    return "\n".join(lines)
+
+
+def build_topic_prompt(
+    *,
+    strategy: dict,
+    pref: dict,
+    recent_topics: list | None,
+    rejected: list[str],
+    trending_block: str,
+    diversity_block: str,
+    subtheme: str,
+    angle: str,
+    fmt: str,
+    historical_topics: str,
+    force_category: bool = False,
+) -> str:
+    """Assembla il prompt topic con tutte le sezioni richieste."""
+    from moduli.channel_confidence import confidence_prompt_block
+    from moduli.channel_learning import category_reuse_reminder
+    try:
+        from moduli.performance import carica_profili
+        confidence_line = confidence_prompt_block(profiles=carica_profili())
+    except Exception:
+        confidence_line = confidence_prompt_block(video_count=0)
+    try:
+        from moduli.analytics_learning import learning_block_for_prompt
+        analytics_learning = learning_block_for_prompt(strategy)
+    except Exception:
+        analytics_learning = "(no analytics learning yet)"
+    trending = (trending_block or "").strip()
+    if not trending:
+        trending = "- (no live trend feed — use what's relevant as of today's date)"
+    return TOPIC_PROMPT.format(
+        current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+        strategy_block=confidence_line + "\n" + _strategy_block(strategy),
+        winning_block=_winning_patterns_block(strategy),
+        losing_block=_losing_patterns_block(strategy, pref),
+        trending_block=trending,
+        diversity_block=diversity_block,
+        analytics_learning_block=analytics_learning,
+        subtheme=subtheme,
+        angle=angle,
+        fmt=fmt,
+        historical_topics=historical_topics,
+        recent_topics=", ".join(recent_topics or []) or "none",
+        rejected_block=_rejected_topics_block(rejected, force_category, subtheme),
+        avoid_block=_topic_avoid_block(strategy, pref),
+        category_reuse_rule=category_reuse_reminder(),
+    )
+
+
+def _pick_levers(strategy: dict) -> tuple[str, str, str]:
+    """Sceglie angolo/formato/tema — strategia analytics prima, random come fallback."""
+    angle = (strategy.get("preferred_angle") or "").strip()
+    fmt = (strategy.get("content_format") or "").strip()
+    focus = (strategy.get("topic_focus") or "").strip()
+
+    if not angle:
+        angle = random.choice(_ANGLES)
+    if not fmt:
+        fmt = random.choice(_FORMATS)
+
+    # subtheme: prima parola chiave dal topic_focus, altrimenti random
+    if focus and len(focus) > 10:
+        subtheme = focus[:120]
+    else:
+        subtheme = random.choice(_SUBTHEMES)
+
+    return angle, fmt, subtheme
+
+
+def _pick_exploit_levers(strategy: dict) -> tuple[str, str, str]:
+    """Leve allineate a pattern vincenti — nuovo soggetto, stessa categoria."""
+    from moduli.topic_diversity import map_winning_pattern_to_levers
+    angle, fmt, subtheme = map_winning_pattern_to_levers(strategy, _ANGLES, _FORMATS)
+    if not subtheme:
+        subtheme = random.choice(_SUBTHEMES)
+    return angle, fmt, subtheme
+
+
+def _pick_alternate_subtheme(strategy: dict, used_subjects: set, rejected: list) -> tuple[str, str, str]:
+    """Dopo 5 tentativi falliti: forza subtheme lontano dalla storia del canale."""
+    scored = []
+    for s in _SUBTHEMES:
+        sl = s.lower()
+        overlap = sum(1 for u in used_subjects if u and (u in sl or sl in u))
+        scored.append((overlap, s))
+    scored.sort(key=lambda x: x[0])
+    min_overlap = scored[0][0] if scored else 0
+    pool = [s for o, s in scored if o == min_overlap] or list(_SUBTHEMES)
+    subtheme = random.choice(pool[:4] if len(pool) > 4 else pool)
+    return random.choice(_ANGLES), random.choice(_FORMATS), subtheme
+
+
+def _target_minutes(strategy: dict, pref: dict) -> int:
+    tm = strategy.get("target_minutes")
+    if tm is not None:
+        try:
+            return max(1, min(30, int(tm)))
+        except (TypeError, ValueError):
+            pass
+    return int(pref.get("durata_target_minuti", 8))
 
 
 def _parse_json(text: str) -> dict:
-    decoder = json.JSONDecoder()
-    start = text.find("{")
-    if start < 0:
-        raise ValueError("No JSON found in model response")
+    from moduli.ai_validation import parse_content_json, AIResponseError
     try:
-        data, _ = decoder.raw_decode(text[start:])
-    except json.JSONDecodeError as e:
-        snippet = text[:500].replace("\n", "\\n")
-        raise ValueError(f"Invalid JSON from model: {e}; response starts with: {snippet}") from e
-    required = {"title", "description", "tags", "script", "video_keywords"}
-    missing = required - set(data)
-    if missing:
-        raise ValueError(f"Model JSON missing required fields: {', '.join(sorted(missing))}")
-    return data
+        return parse_content_json(text)
+    except AIResponseError as e:
+        raise ValueError(str(e)) from e
 
 
-def _fetch_trending() -> str:
+def _fetch_trending(strategy: dict | None = None, subtheme: str = "") -> str:
     try:
-        from moduli.web_search import cerca_notizie
-        results = cerca_notizie("AI technology breakthrough news 2026", max_results=5)
-        if results:
-            return f"\nTRENDING NOW (use as inspiration for a timely topic angle):\n{results}\n"
+        from moduli.research import fetch_trending_block
+        return fetch_trending_block(strategy, subtheme)
     except Exception:
         pass
     return ""
 
 
-def genera_topic(strategy: dict = None, recent_topics: list = None) -> str:
-    strategy = strategy or {}
-    trending = _fetch_trending()
-    angle = random.choice(_ANGLES)
-    fmt = random.choice(_FORMATS)
-    subtheme = random.choice(_SUBTHEMES)
-    print(f"[cervello] Leve creative — tema:{subtheme} | angolo:{angle} | formato:{fmt}", flush=True)
-    prompt = TOPIC_PROMPT.format(
-        current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
-        strategy_notes=strategy.get("notes", "Standard approach"),
-        topic_focus=strategy.get("topic_focus", "AI and technology trends"),
-        recent_topics=", ".join(recent_topics or []) or "none",
-        trending_block=trending,
-        angle=angle,
-        fmt=fmt,
-        subtheme=subtheme,
+def _writing_rules_block() -> str:
+    from moduli.narration_quality import narration_prompt_block
+    return WRITING_RULES_BLOCK + "\n\n" + narration_prompt_block("longform")
+
+
+def _narrative_structure_block(strategy: dict) -> str:
+    chosen = (strategy.get("script_structure") or "").strip()
+    if chosen and len(chosen) > 15:
+        return f"NARRATIVE STRUCTURE for this video:\n{chosen}\n"
+    import random
+    structure = random.choice(NARRATIVE_STRUCTURES)
+    return (
+        f"NARRATIVE STRUCTURE (pick and follow one arc — vary across videos):\n"
+        f"Use: {structure}\n"
+        f"Other options: {', '.join(NARRATIVE_STRUCTURES[:4])}\n"
     )
-    recent_norm = {t.strip().lower() for t in (recent_topics or [])}
-
-    def _clean(t: str) -> str:
-        # il modello a volte avvolge il topic in virgolette nonostante il prompt
-        return t.strip().strip('"“”‘’\' ')
-
-    topic = _clean(chat_ollama(prompt, max_tokens=64))
-    # se ricasca su un topic recente, ritenta una volta con nuove leve casuali
-    if topic.lower() in recent_norm:
-        print(f"[cervello] Topic duplicato '{topic}', ritento con altre leve", flush=True)
-        retry = prompt.replace(angle, random.choice(_ANGLES)).replace(subtheme, random.choice(_SUBTHEMES))
-        alt = _clean(chat_ollama(retry, max_tokens=64))
-        if alt and alt.lower() not in recent_norm:
-            topic = alt
-    return topic
 
 
-def genera_contenuto(topic: str, strategy: dict = None) -> dict:
+def genera_topic(strategy: dict = None, recent_topics: list = None, extra_banned: list = None) -> str:
+    from moduli.topic_history import (
+        assert_unique_topic,
+        banned_topics_block,
+        TopicDuplicateError,
+        ensure_topic_history_seeded,
+        record_rejected_topic,
+        STATUS_REJECTED_DUPLICATE,
+        MAX_TOPIC_ATTEMPTS,
+        MAX_CATEGORY_RETRIES,
+        used_subject_labels,
+    )
+    from moduli.topic_diversity import (
+        decide_mode,
+        diversity_prompt_block,
+        record_mode,
+        exploit_ratio,
+    )
+    from moduli.topic_quality import assert_topic_quality, TopicQualityError
+    from moduli.avoid_patterns import assert_not_avoided, AvoidPatternError
+    from moduli.research import infer_topic_source
+
+    ensure_topic_history_seeded()
     strategy = strategy or {}
     try:
         from moduli.preferenze import carica
         pref = carica()
     except Exception:
         pref = {}
-    target_minutes = pref.get("durata_target_minuti", 8)
+
+    banned_extra = list(extra_banned or [])
+    rejected: list[str] = []
+    used_subjects = used_subject_labels()
+    total_attempts = MAX_TOPIC_ATTEMPTS + MAX_CATEGORY_RETRIES
+    diversity_mode = decide_mode(strategy)
+    initial_diversity_mode = diversity_mode
+
+    def _clean(t: str) -> str:
+        return t.strip().strip('"“”‘’\' ')
+
+    for attempt in range(1, total_attempts + 1):
+        force_category = attempt > MAX_TOPIC_ATTEMPTS
+        if force_category:
+            angle, fmt, subtheme = _pick_alternate_subtheme(strategy, used_subjects, rejected)
+        elif diversity_mode == "exploit" and attempt == 1:
+            angle, fmt, subtheme = _pick_exploit_levers(strategy)
+        elif attempt > 1:
+            angle, fmt, subtheme = _pick_levers({**strategy, "preferred_angle": "", "content_format": ""})
+        elif diversity_mode == "explore":
+            angle, fmt, subtheme = _pick_alternate_subtheme(strategy, used_subjects, rejected)
+            strategy["_explore_subtheme"] = subtheme
+        else:
+            angle, fmt, subtheme = _pick_levers(strategy)
+
+        trending = _fetch_trending(strategy, subtheme)
+
+        phase = f"{diversity_mode}" + ("+cambio-cat" if force_category else "")
+        print(
+            f"[cervello] Topic mode={diversity_mode} ({phase}, {attempt}/{total_attempts}, "
+            f"target exploit {int(exploit_ratio()*100)}%) — "
+            f"tema:{subtheme[:40]} | angolo:{angle[:40]} | formato:{fmt}",
+            flush=True,
+        )
+        prompt = build_topic_prompt(
+            strategy=strategy,
+            pref=pref,
+            recent_topics=recent_topics,
+            rejected=rejected,
+            trending_block=trending,
+            diversity_block=diversity_prompt_block(diversity_mode, strategy, subtheme),
+            subtheme=subtheme,
+            angle=angle,
+            fmt=fmt,
+            historical_topics=banned_topics_block(),
+            force_category=force_category,
+        )
+        topic_raw = chat_ollama(prompt, max_tokens=256)
+        try:
+            from moduli.ai_validation import clean_topic_response, AIResponseError
+            topic = _clean(clean_topic_response(topic_raw))
+        except AIResponseError as e:
+            rejected.append(topic_raw[:80] or "(vuoto)")
+            print(
+                f"[cervello] Topic risposta AI rifiutata — {e.reason} — ritento",
+                flush=True,
+            )
+            continue
+        if not topic:
+            continue
+        try:
+            topic = assert_topic_quality(topic)
+        except TopicQualityError as e:
+            rejected.append(e.candidate or "(vuoto)")
+            print(
+                f"[cervello] Topic qualità rifiutato '{e.candidate}' — {e.reason} — ritento",
+                flush=True,
+            )
+            continue
+        try:
+            assert_not_avoided(topic, "topic", strategy, pref)
+        except AvoidPatternError as e:
+            rejected.append(topic)
+            print(
+                f"[cervello] Topic avoid pattern '{e.pattern}' — ritento",
+                flush=True,
+            )
+            continue
+        # Validazione programmatica obbligatoria — mai accettare senza dedup semantico
+        try:
+            accepted = assert_unique_topic(topic, queue_peers=banned_extra or None)
+            strategy["_topic_diversity_mode"] = initial_diversity_mode
+            strategy["_topic_source"] = infer_topic_source(
+                strategy,
+                diversity_mode=initial_diversity_mode,
+                from_trending=bool(trending.strip()),
+            )
+            record_mode(initial_diversity_mode, accepted)
+            return accepted
+        except TopicDuplicateError as e:
+            rejected.append(topic)
+            record_rejected_topic(
+                topic,
+                matched=e.matched,
+                reason=e.reason or "duplicate",
+                status=STATUS_REJECTED_DUPLICATE,
+                source="topic_generation",
+            )
+            print(
+                f"[cervello] Topic duplicato rifiutato '{topic}' ~ '{e.matched}' "
+                f"({e.reason}) — ritento",
+                flush=True,
+            )
+
+    raise RuntimeError(
+        f"Impossibile generare un topic unico dopo {total_attempts} tentativi "
+        f"({MAX_TOPIC_ATTEMPTS} standard + {MAX_CATEGORY_RETRIES} cambio categoria). "
+        f"Ultimi rifiutati: {rejected[-3:]}"
+    )
+
+
+def genera_contenuto(topic: str, strategy: dict = None) -> dict:
+    from moduli.topic_history import assert_unique_topic, TopicDuplicateError
+    from moduli.ai_validation import parse_content_json, AIResponseError
+    from moduli.title_learning import title_guidance_block, record_generated_title, classify_title_pattern
+    from moduli.hook_optimization import (
+        hook_guidance_block,
+        record_generated_hook,
+        classify_hook_type,
+        opening_excerpt,
+    )
+    from moduli.script_optimization import script_guidance_block, apply_script_suggestions
+    from moduli.thumbnail_learning import thumbnail_guidance_block, classify_thumbnail_traits
+    from moduli.research import infer_topic_source, build_research_brief
+    from moduli.content_quality import run_content_quality_gate, quality_summary_for_log
+    from moduli.subscriber_learning import subscriber_guidance_block
+    from moduli.avoid_patterns import validate_content_fields
+
+    strategy = strategy or {}
+    try:
+        from moduli.preferenze import carica
+        pref = carica()
+    except Exception:
+        pref = {}
+    research = build_research_brief(topic)
+    # Analisi script prima del prompt — suggerimenti conservativi in strategy
+    script_guidance = script_guidance_block(strategy, pref)
+    strategy = apply_script_suggestions(strategy, pref)
+    target_minutes = _target_minutes(strategy, pref)
     language = pref.get("lingua", "english") or "english"
-    target_words = int(target_minutes * 130)  # ~130 parole/min a velocità TTS normale
+    tone = strategy.get("tone") or pref.get("tono_voce", "confident")
+    pacing = strategy.get("pacing") or pref.get("ritmo", "medium")
+    hook_strength = strategy.get("hook_strength") or "medium"
+    video_style = strategy.get("video_style") or pref.get("stile_clip", "cinematic")
+    thumbnail_style = strategy.get("thumbnail_style") or pref.get("stile_thumbnail", "")
+    thumb_guidance = thumbnail_guidance_block(strategy)
+    try:
+        from moduli.analytics_learning import learning_block_for_prompt
+        analytics_learning = learning_block_for_prompt(strategy)
+    except Exception:
+        analytics_learning = ""
     prompt = CONTENT_PROMPT.format(
         current_date=datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         topic=topic,
+        research_block=research.get("prompt_block", ""),
+        writing_rules_block=_writing_rules_block(),
+        narrative_structure_block=_narrative_structure_block(strategy),
         title_style=strategy.get("title_style", "curiosity-driven"),
-        tone=strategy.get("tone", "confident and informative"),
-        hook_strength=strategy.get("hook_strength", "medium"),
+        title_guidance_block=title_guidance_block(strategy),
+        hook_guidance_block=hook_guidance_block(strategy),
+        script_guidance_block=script_guidance,
+        subscriber_guidance_block=subscriber_guidance_block(strategy),
+        tone=tone,
+        hook_strength=hook_strength,
+        script_structure=strategy.get("script_structure", "hook first, then context, key beats, CTA close"),
+        pacing=pacing,
+        video_style=video_style,
         strategy_notes=strategy.get("notes", "Standard approach"),
+        analytics_learning_block=analytics_learning,
+        avoid_block=_avoid_block(strategy, pref),
         target_minutes=target_minutes,
-        target_words=target_words,
+        target_words=int(target_minutes * 130),
         language=language,
+        thumbnail_guidance_block=thumb_guidance,
     )
-    # uno script troppo corto produce un video di pochi secondi: meglio
-    # ritentare una volta e poi fallire con un errore chiaro che pubblicarlo
-    min_words = max(150, int(target_words * 0.5))
+    min_words = max(150, int(target_minutes * 130 * 0.5))
     last_err = None
-    for attempt in range(2):
+    max_attempts = 5
+    for attempt in range(max_attempts):
         try:
-            content = _parse_json(chat_ollama(prompt, max_tokens=8192))
-            words = len(content.get("script", "").split())
+            raw = chat_ollama(prompt, max_tokens=8192, json_mode=True)
+            content = parse_content_json(raw)
+            title = (content.get("title") or "").strip()
+            if title:
+                try:
+                    assert_unique_topic(title)
+                except TopicDuplicateError as e:
+                    raise ValueError(
+                        f"Titolo duplicato semanticamente: '{title}' ~ '{e.matched}'"
+                    ) from e
+                record_generated_title(title, strategy)
+            script = content.get("script") or ""
+            if script:
+                record_generated_hook(script, strategy)
+            words = len(script.split())
             if words < min_words:
                 raise ValueError(
                     f"Script troppo corto: {words} parole, minimo {min_words} "
                     f"per un video da ~{target_minutes} minuti"
                 )
+            avoid_errors = validate_content_fields(content, strategy, pref)
+            if avoid_errors:
+                raise ValueError("; ".join(avoid_errors))
+            from moduli.content_quality import auto_fix_thumbnail_phrase
+            if auto_fix_thumbnail_phrase(content):
+                print("[cervello] Thumbnail phrase auto-corrected to complement title", flush=True)
+            q_ok, q_errors = run_content_quality_gate(content, topic, strategy)
+            if not q_ok:
+                raise ValueError("Quality gate: " + "; ".join(q_errors[:4]))
+            from moduli.narration_quality import narration_summary_for_log
+            print(f"[cervello] {narration_summary_for_log(script, 'longform')}", flush=True)
+            # visual_segments drive montage; fallback to video_keywords
+            segments = content.get("visual_segments") or []
+            if segments:
+                seg_kws = [s.get("keyword") for s in segments if s.get("keyword")]
+                if seg_kws:
+                    content["video_keywords"] = list(dict.fromkeys(
+                        seg_kws + (content.get("video_keywords") or [])
+                    ))[:20]
+            from moduli.script_optimization import extract_script_traits
+            traits = extract_script_traits(script)
+            traits["pacing"] = pacing
+            traits["hook_strength"] = hook_strength
+            content["_strategy_meta"] = {
+                "target_minutes": target_minutes,
+                "pacing": pacing,
+                "video_style": video_style,
+                "thumbnail_style": thumbnail_style,
+                "title_pattern": classify_title_pattern(title) if title else "",
+                "title_experiment": (strategy.get("_title_experiment") or {}),
+                "hook_type": classify_hook_type(opening_excerpt(script)) if script else "",
+                "hook_experiment": (strategy.get("_hook_experiment") or {}),
+                "script_traits": traits,
+                "thumbnail_traits": classify_thumbnail_traits(
+                    content.get("thumbnail_description") or "",
+                    content.get("thumbnail_phrase") or "",
+                    content.get("mood") or "",
+                ),
+                "script_suggestions": strategy.get("_script_suggestions") or {},
+                "topic_source": strategy.get("_topic_source") or infer_topic_source(strategy),
+                "research_snippet_count": len(research.get("snippets") or []),
+            }
+            print(f"[cervello] {quality_summary_for_log(content, topic)}", flush=True)
+            from moduli.experimentation import classify_video_strategy
+            content["_strategy_meta"]["experimentation"] = classify_video_strategy(
+                topic, strategy, content
+            )
             return content
         except ValueError as e:
             last_err = e
-            print(f"[cervello] Contenuto non valido (tentativo {attempt + 1}/2): {e}", flush=True)
+            print(f"[cervello] Contenuto non valido (tentativo {attempt + 1}/{max_attempts}): {e}", flush=True)
+        except AIResponseError as e:
+            last_err = ValueError(str(e))
+            print(f"[cervello] Contenuto non valido (tentativo {attempt + 1}/{max_attempts}): {e}", flush=True)
     raise last_err

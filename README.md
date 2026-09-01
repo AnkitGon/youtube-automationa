@@ -66,17 +66,24 @@ TubeAssistant eliminates every step. It runs 24/7, reads your channel analytics,
 
 ---
 
-## Quick Start
+## Quick Start (team / fresh clone)
 
 ```bash
-pip install uv                                                    # fast installer (one-time)
-uv tool install git+https://github.com/metiu1/tube-assistant.git
-tube-assistant             # interactive menu — pick Setup wizard first
+git clone https://github.com/AnkitGon/youtube-automationa.git
+cd youtube-automationa
+cp .env.example .env          # Windows: copy .env.example .env
+# Edit .env — add YOUR keys (AI, Pexels, Telegram). Never commit .env.
+pip install uv                  # one-time
+uv sync                         # or: installa.bat on Windows
+tube-assistant onboard          # wizard: OAuth, Telegram, channel prefs
+tube-assistant start            # 24/7 daemon
 ```
 
-That's it. The wizard handles API keys, Google OAuth, Telegram bot, and channel preferences.
+See [SECURITY.md](SECURITY.md) for what must stay local. Full system design: [SYSTEM.md](SYSTEM.md).
 
 ---
+
+## Quick Start (pip install from upstream)
 
 ## How It Works
 
@@ -113,15 +120,19 @@ Everything controllable in real time via **Telegram** — just message your bot.
 ## Installation
 
 ```bash
-# Clone
-git clone https://github.com/metiu1/tube-assistant.git
-cd tube-assistant
+# Clone (this repo)
+git clone https://github.com/AnkitGon/youtube-automationa.git
+cd youtube-automationa
 
 # Install
 pip install uv              # one-time
-uv tool install -e .        # or: installa.bat on Windows
+uv sync                     # or: installa.bat on Windows
 
-# Setup (one-time wizard)
+# Configure secrets (required — not in git)
+cp .env.example .env
+# Edit .env with your API keys
+
+# Setup (one-time wizard — Google OAuth + Telegram + preferences)
 tube-assistant onboard
 
 # Run

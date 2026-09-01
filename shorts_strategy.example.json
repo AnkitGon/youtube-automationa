@@ -1,0 +1,16 @@
+{
+  "updated_at": null,
+  "cycles": 0,
+  "rollup": {
+    "winning_hooks": [],
+    "losing_hooks": [],
+    "winning_angles": [],
+    "losing_angles": [],
+    "winning_categories": [],
+    "losing_categories": [],
+    "winning_durations": [],
+    "winning_publish_hours": [],
+    "avoid_patterns": [],
+    "lessons": []
+  }
+}
