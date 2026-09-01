@@ -147,12 +147,32 @@ class RuntimeSafetyTests(unittest.TestCase):
     def test_fallback_skips_openrouter_without_key(self):
         from moduli import ai_client
 
-        with patch.dict(os.environ, {"AI_SERVICE": "ollama_cloud", "OPENROUTER_API_KEY": ""}), \
-             patch.object(ai_client, "_openrouter") as mock_or, \
+        with patch.dict(os.environ, {
+            "AI_SERVICE": "ollama_cloud",
+            "OPENROUTER_API_KEY": "",
+            "GROQ_API_KEY": "",
+            "GEMINI_API_KEY": "",
+            "AI_FALLBACK_SERVICES": "openrouter,ollama_local",
+        }), patch.object(ai_client, "_openrouter") as mock_or, \
              patch.object(ai_client, "_ollama_local", return_value="local") as mock_local:
             self.assertEqual(ai_client._fallback([{"role": "user", "content": "x"}]), "local")
         mock_or.assert_not_called()
         mock_local.assert_called_once()
+
+    def test_fallback_tries_groq_when_key_present(self):
+        from moduli import ai_client
+
+        with patch.dict(os.environ, {
+            "AI_SERVICE": "openrouter",
+            "GROQ_API_KEY": "gsk_test",
+            "GEMINI_API_KEY": "",
+            "AI_FALLBACK_SERVICES": "groq,gemini",
+        }), patch.object(ai_client, "_groq", return_value="from-groq") as mock_groq, \
+             patch.object(ai_client, "_gemini") as mock_gemini:
+            result = ai_client._fallback([{"role": "user", "content": "x"}])
+        self.assertEqual(result, "from-groq")
+        mock_groq.assert_called_once()
+        mock_gemini.assert_not_called()
 
     def test_short_script_is_retried_then_rejected(self):
         """Regressione: script da poche parole = video di pochi secondi —

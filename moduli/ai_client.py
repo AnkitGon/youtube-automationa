@@ -68,16 +68,47 @@ _OPENROUTER_MAX_ATTEMPTS = 3
 def _openrouter_model_chain() -> list[str]:
     """Modello primario + eventuali fallback da OPENROUTER_FALLBACK_MODELS."""
     primary = (os.environ.get("OPENROUTER_MODEL") or OPENROUTER_MODEL or "").strip()
-    fallbacks = [
-        m.strip()
-        for m in os.environ.get("OPENROUTER_FALLBACK_MODELS", "").split(",")
-        if m.strip()
-    ]
+    default_fallbacks = "google/gemma-2-9b-it:free,openrouter/free"
+    raw_fallbacks = os.environ.get("OPENROUTER_FALLBACK_MODELS", default_fallbacks)
+    fallbacks = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
     chain: list[str] = []
     for model in [primary, *fallbacks]:
         if model and model not in chain:
             chain.append(model)
     return chain or ["openrouter/free"]
+
+
+def _fallback_service_chain() -> list[str]:
+    """Provider order when primary fails (env AI_FALLBACK_SERVICES, comma-separated)."""
+    default = "groq,gemini,openrouter,ollama_local"
+    raw = os.environ.get("AI_FALLBACK_SERVICES", default)
+    return [s.strip().lower() for s in raw.split(",") if s.strip()]
+
+
+def _provider_available(svc: str) -> bool:
+    """True if we can attempt this provider (key present or local/no-key service)."""
+    if svc == "ollama_local":
+        return True
+    if svc == "ollama_cloud":
+        return bool(os.environ.get("OLLAMA_API_KEY", "").strip())
+    key_name = {
+        "openrouter": "OPENROUTER_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "mistral": "MISTRAL_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "deepseek": "DEEPSEEK_API_KEY",
+        "xai": "XAI_API_KEY",
+        "cohere": "COHERE_API_KEY",
+        "together": "TOGETHER_API_KEY",
+        "perplexity": "PERPLEXITY_API_KEY",
+        "fireworks": "FIREWORKS_API_KEY",
+        "azure_openai": "AZURE_OPENAI_API_KEY",
+    }.get(svc)
+    if not key_name:
+        return False
+    return bool(os.environ.get(key_name, "").strip())
 
 
 def _message_content_text(message: dict) -> str | None:
@@ -494,23 +525,32 @@ def _primary(messages: list, max_tokens: int = 8192, json_mode: bool = False) ->
 
 
 def _fallback(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> str:
-    """Prova i provider di riserva in base alle chiavi realmente disponibili."""
-    svc = os.environ.get("AI_SERVICE", AI_SERVICE)
-    candidates = []
-    if svc != "openrouter" and os.environ.get("OPENROUTER_API_KEY", "").strip():
-        candidates.append(("openrouter", _openrouter))
-    if svc != "ollama_local":
-        # nessuna chiave richiesta: vale sempre la pena tentare l'istanza locale
-        candidates.append(("ollama_local", _ollama_local))
+    """Try backup providers when primary fails (rate limit, outage, empty response)."""
+    primary_svc = os.environ.get("AI_SERVICE", AI_SERVICE).strip().lower()
     last_err: Exception | None = None
-    for name, fn in candidates:
+
+    for name in _fallback_service_chain():
+        if name == primary_svc:
+            continue
+        if name not in _PROVIDERS:
+            print(f"[AI] Fallback skip unknown service: {name}", flush=True)
+            continue
+        if not _provider_available(name):
+            print(f"[AI] Fallback skip {name} (no API key / not configured)", flush=True)
+            continue
+        fn = globals().get(f"_{name}")
+        if not callable(fn):
+            print(f"[AI] Fallback skip {name} (provider not loaded)", flush=True)
+            continue
         try:
+            print(f"[AI] Trying fallback provider: {name}", flush=True)
             cap = _token_cap(name, max_tokens)
             return fn(messages, cap, json_mode=json_mode)
         except Exception as e:
-            print(f"[AI] Fallback {name} fallito: {e}", flush=True)
+            print(f"[AI] Fallback {name} failed: {e}", flush=True)
             last_err = e
-    raise RuntimeError(f"Tutti i provider AI di fallback hanno fallito: {last_err}")
+
+    raise RuntimeError(f"All AI fallback providers failed: {last_err}")
 
 
 # ── public API ────────────────────────────────────────────────────────────────

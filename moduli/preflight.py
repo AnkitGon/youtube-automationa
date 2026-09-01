@@ -55,6 +55,28 @@ def run_checks(workspace: str | Path = ".") -> list[dict]:
     if service_key:
         add(service_key, _has_env(service_key), f"chiave per {service}")
 
+    # At least one fallback provider besides primary (rate-limit resilience)
+    primary = (service or "openrouter").strip().lower()
+    fallbacks_ok = []
+    fallbacks_missing = []
+    try:
+        from moduli.ai_client import _fallback_service_chain, _provider_available
+        for fb in _fallback_service_chain():
+            if fb == primary:
+                continue
+            if _provider_available(fb):
+                fallbacks_ok.append(fb)
+            else:
+                fallbacks_missing.append(fb)
+    except Exception:
+        fallbacks_missing = ["groq", "gemini"]
+    add(
+        "AI fallbacks",
+        len(fallbacks_ok) >= 1,
+        f"ready: {', '.join(fallbacks_ok) or 'none'}; "
+        f"missing keys: {', '.join(fallbacks_missing) or 'none'}",
+    )
+
     provider = os.environ.get("IMAGE_PROVIDER", "pollinations").lower()
     if provider == "huggingface":
         add("huggingface_hub", importlib.util.find_spec("huggingface_hub") is not None, "richiesto da IMAGE_PROVIDER=huggingface")

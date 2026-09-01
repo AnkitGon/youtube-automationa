@@ -587,3 +587,5 @@ Teammates start fresh; only shared code and `.env.example` travel through git.
 ---
 
 *For bot commands see [TELEGRAM.md](TELEGRAM.md). For sharing safely see [SECURITY.md](SECURITY.md).*
+
+uv run python agent.py
