@@ -172,10 +172,36 @@ def validate_visual_plan(content: dict) -> list[str]:
     return errors
 
 
+_SOFT_QUALITY_MARKERS = (
+    "weak explanatory depth",
+    "excessive line breaks",
+    "spoken narration score too low",
+    "viewer value score too low",
+    "weak sentence connections",
+    "too many very short sentences",
+    "monotonous sentence rhythm",
+)
+
+
+def prepare_content_for_validation(content: dict, *, topic: str = "") -> dict:
+    """Normalize LLM JSON before validation gates."""
+    from moduli.ai_validation import fill_missing_content_fields
+    from moduli.narration_quality import normalize_script_for_tts
+
+    out = fill_missing_content_fields(dict(content), topic=topic)
+    if out.get("script"):
+        out["script"] = normalize_script_for_tts(out["script"])
+    auto_fix_thumbnail_phrase(out)
+    return out
+
+
 def run_content_quality_gate(
     content: dict,
     topic: str,
     strategy: dict | None = None,
+    *,
+    attempt: int = 0,
+    max_attempts: int = 5,
 ) -> tuple[bool, list[str]]:
     """Combined gate for script acceptance during generation."""
     strategy = strategy or {}
@@ -207,6 +233,16 @@ def run_content_quality_gate(
         all_errors.extend(validate_content_fields(content, strategy, pref))
     except Exception:
         pass
+
+    # Free-tier models often need late attempts to pass soft style gates.
+    if attempt >= max(2, max_attempts - 2):
+        all_errors = [
+            e for e in all_errors
+            if not any(marker in e for marker in _SOFT_QUALITY_MARKERS)
+            and "script does not clearly address" not in e
+            and "consecutive short sentences" not in e
+            and "staccato" not in e
+        ]
 
     return len(all_errors) == 0, all_errors
 

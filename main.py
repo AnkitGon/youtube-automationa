@@ -19,6 +19,10 @@ THUMB_PATH = "output/thumbnail.jpg"
 
 
 def run():
+    from moduli.pipeline_flags import long_form_enabled
+    if not long_form_enabled():
+        print("Long-form pipeline disabled (LONG_FORM_ENABLED=false). Exiting.")
+        sys.exit(0)
     os.makedirs("output", exist_ok=True)
 
     print("=== [Analytics] Reading channel performance ===")

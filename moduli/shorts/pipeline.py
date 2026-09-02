@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from moduli.audio import genera_audio
 from moduli.ffmpeg_utils import media_duration
-from moduli.shorts.analytics import leggi_audience_geography, shorts_activity_signal, sync_shorts_profiles
+from moduli.shorts.analytics import sync_shorts_profiles
 from moduli.shorts.captions import generate_ass
 from moduli.shorts.config import ShortsConfig, load_config
 from moduli.shorts.content import generate_short_content
@@ -68,19 +68,38 @@ def _do_short_upload(
     activity: dict | None,
     geography: dict | None,
     profiles_count: int,
+    publish_mode: str = "soon",
+    state: dict | None = None,
 ) -> dict:
     """Upload a rendered Short and record success metadata."""
     from moduli.pubblica import pubblica_short
     from moduli.notifiche import notify_shorts_done
+    from moduli.shorts.scheduler import next_upcoming_planned_slot
+    from moduli.shorts.state import load_state
 
     cfg = config
+    state = state or load_state()
+    producing_now = publish_mode != "next"
+    sched_slot = slot_index
+    if publish_mode == "next":
+        upcoming = next_upcoming_planned_slot(
+            config=cfg,
+            state=state,
+            activity=activity,
+            geography=geography,
+            profiles_count=profiles_count,
+        )
+        if upcoming:
+            sched_slot, _ = upcoming
+
     decision = compute_shorts_schedule(
-        slot_index,
+        sched_slot,
         activity=activity,
         geography=geography,
         profiles_count=profiles_count,
         config=cfg,
-        producing_now=True,
+        producing_now=producing_now,
+        state=state,
     )
 
     set_pipeline_status("upload", slot_index)
@@ -152,6 +171,8 @@ def run_single_short(
     geography: dict | None = None,
     profiles_count: int = 0,
     retry: bool = True,
+    publish_mode: str = "soon",
+    state: dict | None = None,
 ) -> dict | None:
     """Produce and upload one Short. Returns result dict or None on failure."""
     cfg = config or load_config()
@@ -171,6 +192,8 @@ def run_single_short(
                 activity=activity,
                 geography=geography,
                 profiles_count=profiles_count,
+                publish_mode=publish_mode,
+                state=state,
             )
 
         set_pipeline_status("content", slot_index)
@@ -218,6 +241,7 @@ def run_single_short(
                     concept, slot_index,
                     config=cfg, activity=activity, geography=geography,
                     profiles_count=profiles_count, retry=False,
+                    publish_mode=publish_mode, state=state,
                 )
             raise ValueError(f"Quality gate: {'; '.join(errors)}")
 
@@ -230,6 +254,8 @@ def run_single_short(
             activity=activity,
             geography=geography,
             profiles_count=profiles_count,
+            publish_mode=publish_mode,
+            state=state,
         )
 
     except Exception as e:
@@ -239,7 +265,13 @@ def run_single_short(
         return None
 
 
-def run_shorts_slot(slot_index: int | None = None, *, dry_run: bool = False) -> dict:
+def run_shorts_slot(
+    slot_index: int | None = None,
+    *,
+    dry_run: bool = False,
+    manual: bool = False,
+    publish_mode: str = "soon",
+) -> dict:
     """
     Produce and upload ONE Short for the current daily slot.
     Never raises to caller.
@@ -251,30 +283,39 @@ def run_shorts_slot(slot_index: int | None = None, *, dry_run: bool = False) -> 
         _log("Shorts disabled — skipping")
         return {"skipped": True, "reason": "disabled"}
 
+    from moduli.shorts.config import manual_ignores_quota
     from moduli.shorts.state import runs_today
-    from moduli.shorts.scheduler import should_produce_short_now, slot_label
+    from moduli.shorts.scheduler import next_manual_slot_index, slot_label
 
     done = runs_today(state)
-    if done >= cfg.per_day:
+    if done >= cfg.per_day and not (manual and manual_ignores_quota()):
         _log("Daily Shorts quota already met")
         return {"skipped": True, "reason": "quota_met"}
 
     if slot_index is None:
-        slot_index = done
+        slot_index = next_manual_slot_index(state, config=cfg)
     label = slot_label(slot_index)
-    _log(f"=== SHORTS {label.upper()} SLOT ({slot_index + 1}/{cfg.per_day}) ===")
+    if done >= cfg.per_day and manual:
+        _log(f"=== MANUAL SHORT (extra, {done}/{cfg.per_day} scheduled) slot {slot_index} ===")
+    else:
+        _log(f"=== SHORTS {label.upper()} SLOT ({slot_index + 1}/{cfg.per_day}) ===")
 
     try:
+        from moduli.shorts.scheduler import refresh_shorts_scheduler_cache
+
+        state = refresh_shorts_scheduler_cache(state, force=True)
+        cache = state.get("_scheduler_cache") or {}
         profiles = sync_shorts_profiles()
-        activity = shorts_activity_signal(profiles)
-        geography = leggi_audience_geography()
-        state["_scheduler_cache"] = {"activity": activity, "geography": geography}
+        activity = cache.get("activity")
+        geography = cache.get("geography")
+        profiles_count = int(cache.get("profiles_count") or len(profiles))
         save_state(state)
     except Exception as e:
         _log(f"Analytics prefetch failed (using fallback): {e}")
         profiles = []
         activity = None
         geography = None
+        profiles_count = 0
 
     concepts = plan_daily_batch(count=1, config=cfg)
     if not concepts:
@@ -292,6 +333,8 @@ def run_shorts_slot(slot_index: int | None = None, *, dry_run: bool = False) -> 
         activity=activity,
         geography=geography,
         profiles_count=len(profiles),
+        publish_mode=publish_mode,
+        state=state,
     )
 
     if result:

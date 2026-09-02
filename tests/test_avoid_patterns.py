@@ -76,6 +76,33 @@ class AvoidPatternsTests(unittest.TestCase):
         self.assertIn("MANDATORY", title_block)
         self.assertIn("MANDATORY", thumb_block)
 
+    def test_title_like_pattern_only_blocks_title_fields(self):
+        strategy = {
+            "_recent_underperformers": ["Your Phone Case That Fixes Itself by 2026"],
+        }
+        errors = validate_content_fields(
+            {
+                "title": "Why Mars Colony Plans Failed in 2026",
+                "thumbnail_phrase": "TOO LATE",
+                "script": (
+                    "In 2026, your phone case might fix itself, but Mars colony plans "
+                    "collapsed for a completely different reason involving budgets and radiation."
+                ),
+                "thumbnail_description": "Mars habitat exterior at sunset, documentary cinematic lighting",
+            },
+            strategy,
+            {},
+        )
+        self.assertFalse(any("script opening" in e for e in errors))
+
+    def test_preference_conflicts_filtered(self):
+        pats = collect_avoid_patterns(
+            {"avoid_patterns": ["video style: cinematic", "generic AI future predictions"]},
+            {"stile_clip": "cinematic"},
+        )
+        self.assertNotIn("video style: cinematic", pats)
+        self.assertIn("generic AI future predictions", pats)
+
 
 if __name__ == "__main__":
     unittest.main()

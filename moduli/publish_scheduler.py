@@ -294,7 +294,17 @@ def _next_local_slot(
     else:
         candidate = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if candidate <= now_local:
-            candidate += timedelta(days=1)
+            same_day = os.environ.get("SCHEDULER_SAME_DAY_PUBLISH", "1").lower() not in {
+                "0", "false", "no",
+            }
+            min_lead = max(
+                5,
+                int(os.environ.get("SCHEDULER_SAME_DAY_MIN_LEAD_MINUTES", "30")),
+            )
+            if same_day:
+                candidate = now_local + timedelta(minutes=min_lead)
+            else:
+                candidate += timedelta(days=1)
         candidates.append(candidate)
 
     # Pick earliest future slot
@@ -535,7 +545,7 @@ def compute_publish_schedule(
 def resolve_pipeline_trigger_hours(state: dict, config: SchedulerConfig | None = None) -> list[int]:
     """
     When the agent wakes up to run the pipeline (UTC hours).
-    Independent of YouTube publish time.
+    Independent of YouTube publish time unless auto-derived (default).
     """
     cfg = config or load_scheduler_config()
     if state.get("trigger_hours_utc"):
@@ -545,9 +555,29 @@ def resolve_pipeline_trigger_hours(state: dict, config: SchedulerConfig | None =
         lead = int(os.environ.get("TRIGGER_LEAD_HOURS", "3"))
         hours = [(int(h) - lead) % 24 for h in state["publish_hours_utc"]]
     else:
-        hours = list(cfg.pipeline_trigger_hours)
+        auto_derive = os.environ.get("AUTO_DERIVE_PIPELINE_TRIGGER", "1").lower() not in {
+            "0", "false", "no",
+        }
+        hours = _trigger_hours_from_publish_time(cfg) if auto_derive else []
+        if not hours:
+            hours = list(cfg.pipeline_trigger_hours)
     n = max(1, min(5, int(state.get("videos_per_day", 1))))
     return sorted(int(h) for h in hours)[:n]
+
+
+def _trigger_hours_from_publish_time(cfg: SchedulerConfig) -> list[int]:
+    """UTC hour(s) to start production — default publish time minus PRODUCTION_LEAD_HOURS."""
+    lead_h = max(1, int(os.environ.get("PRODUCTION_LEAD_HOURS", "3")))
+    pub_h, pub_m = _parse_hhmm(cfg.default_publish_time)
+    try:
+        tz = ZoneInfo(cfg.default_publish_timezone)
+    except Exception:
+        return []
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    pub_local = now_local.replace(hour=pub_h, minute=pub_m, second=0, microsecond=0)
+    trigger_local = pub_local - timedelta(hours=lead_h)
+    trigger_utc = trigger_local.astimezone(timezone.utc)
+    return [trigger_utc.hour]
 
 
 def log_schedule_decision(decision: ScheduleDecision, *, log_fn=print) -> None:

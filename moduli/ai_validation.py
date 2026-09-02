@@ -233,8 +233,54 @@ DEDUP_JUDGE_REQUIRED_FIELDS = frozenset({
 })
 
 
-def parse_content_json(text: str) -> dict:
-    return parse_json_object(text, CONTENT_REQUIRED_FIELDS)
+def fill_missing_content_fields(data: dict, *, topic: str = "") -> dict:
+    """Infer missing pipeline fields from other LLM JSON keys."""
+    out = dict(data)
+    kws: list[str] = []
+    existing = out.get("video_keywords")
+    if isinstance(existing, list):
+        kws = [str(x).strip() for x in existing if str(x).strip()]
+    elif isinstance(existing, str) and existing.strip():
+        kws = [existing.strip()]
+
+    if not kws:
+        for seg in out.get("visual_segments") or []:
+            if not isinstance(seg, dict):
+                continue
+            kw = seg.get("keyword") or seg.get("keywords")
+            if isinstance(kw, str) and kw.strip():
+                kws.append(kw.strip())
+            elif isinstance(kw, list):
+                kws.extend(str(x).strip() for x in kw if str(x).strip())
+
+    if not kws:
+        tags = out.get("tags") or []
+        if isinstance(tags, list):
+            kws = [str(t).strip() for t in tags if str(t).strip()]
+
+    if not kws and topic:
+        kws = [topic.strip()[:80]]
+    if not kws:
+        title = (out.get("title") or "").strip()
+        if title:
+            kws = [title[:80]]
+
+    if kws:
+        out["video_keywords"] = list(dict.fromkeys(kws))[:20]
+    return out
+
+
+def parse_content_json(text: str, *, topic: str = "") -> dict:
+    data = parse_json_object(text, CONTENT_REQUIRED_FIELDS - {"video_keywords"})
+    data = fill_missing_content_fields(data, topic=topic)
+    missing = CONTENT_REQUIRED_FIELDS - set(data)
+    if missing:
+        raise AIResponseError(
+            f"missing required fields: {', '.join(sorted(missing))}"
+        )
+    if not data.get("video_keywords"):
+        raise AIResponseError("missing required fields: video_keywords")
+    return data
 
 
 def fetch_json_with_retries(

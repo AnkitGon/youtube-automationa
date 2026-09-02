@@ -44,7 +44,7 @@ class OpenRouterContentExtractionTests(unittest.TestCase):
 
         self.assertEqual(result, "Hello")
         self.assertNotIn("response_format", captured["payload"])
-        self.assertEqual(captured["payload"]["reasoning"], {"effort": "none"})
+        self.assertNotIn("reasoning", captured["payload"])
 
     def test_openrouter_json_mode_uses_structured_output(self):
         captured = {}
@@ -70,7 +70,7 @@ class OpenRouterContentExtractionTests(unittest.TestCase):
             result = ai_client.chat_ollama("give json", max_tokens=500, json_mode=True)
 
         self.assertEqual(captured["payload"]["response_format"], {"type": "json_object"})
-        self.assertEqual(captured["payload"]["reasoning"], {"effort": "none"})
+        self.assertNotIn("reasoning", captured["payload"])
         parsed = json.loads(result)
         self.assertEqual(parsed["title"], "T")
 
@@ -102,6 +102,37 @@ class OpenRouterContentExtractionTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(models_tried[0], "primary/fail")
         self.assertIn("backup/ok", models_tried)
+
+    def test_openrouter_rotates_on_429(self):
+        models_tried = []
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            models_tried.append(json["model"])
+            resp = MagicMock()
+            if json["model"] == "first/rate":
+                resp.status_code = 429
+                resp.json.return_value = {"error": {"message": "rate limit"}}
+                resp.text = "rate limit"
+                resp.raise_for_status = MagicMock()
+                return resp
+            resp.status_code = 200
+            resp.json.return_value = {
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            }
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch.dict(os.environ, {
+            "OPENROUTER_API_KEY": "test-key",
+            "OPENROUTER_MODEL": "first/rate",
+            "OPENROUTER_FALLBACK_MODELS": "second/ok",
+            "OPENROUTER_USE_FREE_MODEL_POOL": "0",
+            "OPENROUTER_ROTATE_ON_429": "1",
+        }), patch("moduli.ai_client.requests.post", side_effect=fake_post):
+            result = ai_client._openrouter([{"role": "user", "content": "x"}])
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(models_tried[:2], ["first/rate", "second/ok"])
 
 
 class ParseJsonTests(unittest.TestCase):

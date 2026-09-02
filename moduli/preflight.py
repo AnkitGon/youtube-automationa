@@ -69,7 +69,7 @@ def run_checks(workspace: str | Path = ".") -> list[dict]:
             else:
                 fallbacks_missing.append(fb)
     except Exception:
-        fallbacks_missing = ["groq", "gemini"]
+        fallbacks_missing = ["openrouter"]
     add(
         "AI fallbacks",
         len(fallbacks_ok) >= 1,

@@ -8,6 +8,7 @@ from moduli.ai_validation import (
     clean_topic_response,
     contains_banned_reasoning,
     fetch_json_with_retries,
+    fill_missing_content_fields,
     parse_content_json,
     parse_json_object,
 )
@@ -44,6 +45,34 @@ class AIValidationTests(unittest.TestCase):
         with self.assertRaises(AIResponseError) as ctx:
             parse_content_json('{"title": "only title"}')
         self.assertIn("missing required fields", str(ctx.exception))
+
+    def test_parse_json_fills_video_keywords_from_visual_segments(self):
+        payload = {
+            "title": "Nokia Fall",
+            "description": "Story of Nokia decline in smartphones.",
+            "tags": ["nokia", "phones"],
+            "script": "word " * 200,
+            "visual_segments": [
+                {"text_excerpt": "intro", "keyword": "vintage mobile phone", "visual_type": "stock"},
+                {"text_excerpt": "market", "keyword": "smartphone market chart", "visual_type": "chart"},
+            ],
+        }
+        data = parse_content_json(json.dumps(payload), topic="Nokia smartphone failure")
+        self.assertEqual(
+            data["video_keywords"][:2],
+            ["vintage mobile phone", "smartphone market chart"],
+        )
+
+    def test_fill_video_keywords_from_tags(self):
+        data = fill_missing_content_fields(
+            {
+                "title": "AI Agents",
+                "tags": ["ai agents", "automation"],
+                "script": "x",
+            },
+            topic="AI agents",
+        )
+        self.assertEqual(data["video_keywords"], ["ai agents", "automation"])
 
     def test_fetch_json_retries(self):
         calls = {"n": 0}

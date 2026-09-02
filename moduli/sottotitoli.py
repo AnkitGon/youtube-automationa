@@ -5,6 +5,7 @@ proporzionale al numero di parole di ogni blocco — non è una trascrizione
 forzata ma per una narrazione TTS a ritmo costante è molto vicina.
 """
 
+import os
 import re
 
 MAX_PAROLE_BLOCCO = 12
@@ -48,3 +49,46 @@ def genera_srt(script: str, durata_audio: float, output_path: str) -> str | None
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(righe))
     return output_path
+
+
+def estimate_duration_from_script(script: str, wpm: float = 150.0) -> float:
+    """Stima durata TTS da conteggio parole (fallback se ffmpeg non legge il file)."""
+    words = len(re.sub(r"\s+", " ", script or "").split())
+    if words <= 0:
+        return 0.0
+    return max(words / max(wpm, 80.0) * 60.0, 1.0)
+
+
+def resolve_narration_duration(
+    script: str,
+    audio_path: str | None = None,
+    video_path: str | None = None,
+) -> float:
+    """Durata reale da audio/video; stima dallo script se i media non sono leggibili."""
+    from moduli.ffmpeg_utils import media_duration
+
+    for path in (audio_path, video_path):
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            dur = float(media_duration(path))
+            if dur > 0:
+                return dur
+        except Exception:
+            continue
+    return estimate_duration_from_script(script)
+
+
+def prepare_srt(
+    script: str,
+    output_path: str,
+    *,
+    audio_path: str | None = None,
+    video_path: str | None = None,
+) -> str:
+    """Genera SRT con fallback sulla stima — solleva ValueError se impossibile."""
+    durata = resolve_narration_duration(script, audio_path, video_path)
+    result = genera_srt(script, durata, output_path)
+    if not result or not os.path.isfile(output_path) or os.path.getsize(output_path) < 50:
+        raise ValueError("subtitle generation failed — empty script or zero duration")
+    return result

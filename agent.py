@@ -85,6 +85,7 @@ from moduli.notifiche import (
 notify_start, notify_step, notify_done, notify_error, notify_analytics
 )
 from moduli.telegram_handler import start_bot
+from moduli.pipeline_flags import long_form_enabled
 from moduli.state_io import load_state as _load_state, save_state as _save_state
 
 AUDIO_PATH = "output/narration.mp3"
@@ -218,16 +219,40 @@ def _get_trigger_hours(state: dict) -> list[int]:
 
 
 def _should_run(state: dict, now: datetime, last_attempt: tuple | None = None) -> bool:
+    if not long_form_enabled():
+        return False
     if state.get("force_run"):
         return True
     videos_per_day = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
     if _runs_today(state) >= videos_per_day:
         return False
     trigger_hours = _get_trigger_hours(state)
+    if not trigger_hours:
+        return False
+    day = now.strftime("%Y-%m-%d")
+    hour_key = (day, now.hour)
     # finestra = tutta l'ora (non solo minute==0): un tick saltato per drift
     # del loop non fa perdere il video. last_attempt evita doppi trigger.
-    key = (now.strftime("%Y-%m-%d"), now.hour)
-    return now.hour in trigger_hours and key != last_attempt
+    if now.hour in trigger_hours and hour_key != last_attempt:
+        return True
+    # Catch-up: quota non raggiunta e trigger passato — una volta al giorno
+    catch_key = (day, "catchup")
+    if now.hour > max(trigger_hours) and last_attempt != catch_key:
+        return True
+    return False
+
+
+def _long_form_catchup_pending(state: dict, now: datetime) -> bool:
+    """True if today's long video is still due after the scheduled trigger hour."""
+    if not long_form_enabled():
+        return False
+    if state.get("force_run"):
+        return False
+    vpd = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
+    if _runs_today(state) >= vpd:
+        return False
+    trigger_hours = _get_trigger_hours(state)
+    return bool(trigger_hours) and now.hour > max(trigger_hours)
 
 
 def _log(msg: str) -> None:
@@ -305,6 +330,9 @@ def _scarica_tutte_le_clips(keywords: list) -> dict:
 
 
 def run_pipeline(state: dict, dry_run: bool = False) -> None:
+    if not long_form_enabled():
+        _log("Long-form pipeline disabled (LONG_FORM_ENABLED=false) — skipping")
+        return
     os.makedirs("output", exist_ok=True)
     _log("=== PIPELINE STARTED ===")
 
@@ -401,7 +429,9 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
         from moduli.performance import score_video
         scored = sorted(performance, key=score_video)
         strategy["_recent_underperformers"] = [
-            v.get("title", "")[:60] for v in scored[:2] if v.get("title")
+            v.get("title", "")[:60]
+            for v in scored[:2]
+            if v.get("title") and int(v.get("views") or 0) > 0
         ]
     fresh = _load_state()
     fresh["last_strategy"] = strategy
@@ -610,11 +640,19 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
     # Generate subtitles from final narration before upload (quality gate requires them)
     srt_path = "output/sottotitoli.srt"
     try:
-        from moduli.montaggio import _media_duration
-        from moduli.sottotitoli import genera_srt
-        genera_srt(content.get("script", ""), _media_duration(AUDIO_PATH), srt_path)
+        from moduli.sottotitoli import prepare_srt
+        prepare_srt(
+            content.get("script", ""),
+            srt_path,
+            audio_path=AUDIO_PATH,
+            video_path=VIDEO_PATH,
+        )
+        _log(f"  -> Subtitles ready: {srt_path}")
     except Exception as e:
         _log(f"  -> Caption generation failed: {e}")
+        require_caps = os.environ.get("REQUIRE_CAPTIONS", "1").lower() not in {"0", "false", "no"}
+        if require_caps:
+            raise RuntimeError(f"Subtitles required but generation failed: {e}") from e
 
     from moduli.publish_gate import run_pre_publish_gate
     skip_gate = os.environ.get("SKIP_PUBLISH_GATE", "").lower() in {"1", "true", "yes"}
@@ -691,17 +729,33 @@ def run_pipeline(state: dict, dry_run: bool = False) -> None:
 
     # Upload captions (already generated for quality gate)
     if "captions" not in cp["steps"]:
-        try:
-            from moduli.pubblica import carica_sottotitoli
-            from moduli.preferenze import carica as _carica_pref
-            if srt_path and os.path.exists(srt_path):
-                lingua = "it" if _carica_pref().get("lingua") == "italian" else "en"
-                carica_sottotitoli(video_id, srt_path, language=lingua)
-                cp["steps"].append("captions")
-                _save_checkpoint(cp)
-                _log("  -> Captions uploaded")
-        except Exception as e:
-            _log(f"  -> Captions skipped: {e}")
+        from moduli.pubblica import carica_sottotitoli
+        from moduli.preferenze import carica as _carica_pref
+        require_caps = os.environ.get("REQUIRE_CAPTIONS", "1").lower() not in {"0", "false", "no"}
+        if srt_path and os.path.exists(srt_path):
+            lingua = "it" if _carica_pref().get("lingua") == "italian" else "en"
+            last_err: Exception | None = None
+            for attempt in range(3):
+                try:
+                    carica_sottotitoli(video_id, srt_path, language=lingua)
+                    cp["steps"].append("captions")
+                    _save_checkpoint(cp)
+                    _log("  -> Captions uploaded")
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    wait = 5 * (attempt + 1)
+                    _log(f"  -> Captions upload failed (attempt {attempt + 1}/3): {e}")
+                    if attempt < 2:
+                        time.sleep(wait)
+            if last_err:
+                msg = f"Captions upload failed after retries: {last_err}"
+                if require_caps:
+                    raise RuntimeError(msg) from last_err
+                _log(f"  -> Captions skipped: {last_err}")
+        elif require_caps:
+            raise RuntimeError("Subtitles required but SRT file is missing before upload")
 
     try:
         from moduli.channel_learning import record_scheduling_decision
@@ -790,9 +844,6 @@ def _cleanup_stale_state() -> None:
     """Rimuove flag che non devono persistere tra riavvii."""
     state = _load_state()
     changed = False
-    if state.pop("force_run", None) is not None:
-        _log("  -> Cleared stale force_run from previous session")
-        changed = True
     if state.pop("publish_immediately", None) is not None:
         _log("  -> Cleared stale publish_immediately from previous session")
         changed = True
@@ -859,28 +910,54 @@ def main():
     state = _load_state()
     trigger_hours = _get_trigger_hours(state)
     vpd = state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
-    _log(f"  Videos per day: {vpd} | Trigger hours: {trigger_hours} UTC")
+    lf_on = long_form_enabled()
+    _log(
+        f"  Long-form: {'ON' if lf_on else 'OFF (LONG_FORM_ENABLED=false)'} | "
+        f"Videos per day: {vpd} | Trigger hours: {trigger_hours} UTC"
+    )
     _log(f"  Topics in queue: {len(state.get('topic_queue', []))}")
+    now_boot = datetime.now(timezone.utc)
+    if not lf_on:
+        if state.get("force_run"):
+            _log("  Long-form: ignoring pending force_run (pipeline disabled)")
+            state.pop("force_run", None)
+            state.pop("publish_immediately", None)
+            _save_state(state)
+    elif _long_form_catchup_pending(state, now_boot):
+        _log("  Long-form: catching up missed window — will start on next tick")
+    elif state.get("force_run"):
+        _log("  Long-form: force_run pending — will start on next tick")
     try:
         from moduli.shorts.config import load_config
         from moduli.shorts.state import load_state as _shorts_state, runs_today as _shorts_done
-        from moduli.shorts.scheduler import production_hours_local, slot_label, missed_slots_today
+        from moduli.shorts.scheduler import (
+            production_hours_local,
+            refresh_shorts_scheduler_cache,
+            skipped_slots_today,
+            slot_label,
+        )
 
         scfg = load_config()
         ss = _shorts_state()
         if scfg.enabled and ss.get("enabled", True):
-            hours = production_hours_local(scfg)
+            try:
+                ss = refresh_shorts_scheduler_cache(ss)
+            except Exception:
+                pass
+            plan = ss.get("daily_slot_plan") or {}
+            plan_src = plan.get("source", "fallback")
+            hours = production_hours_local(scfg, state=ss)
             slots = ", ".join(
                 f"{slot_label(i)} {h:02d}:00" for i, h in enumerate(hours[: scfg.per_day])
             )
             _log(
                 f"  Shorts: {_shorts_done(ss)}/{scfg.per_day} today | "
-                f"Production ({scfg.timezone}): {slots}"
+                f"Production ({scfg.timezone}, {plan_src}): {slots}"
             )
-            missed = missed_slots_today(config=scfg, state=ss)
-            if missed:
-                labels = ", ".join(slot_label(s) for s in missed)
-                _log(f"  Shorts: catching up missed windows — {labels}")
+            skipped = skipped_slots_today(config=scfg, state=ss)
+            if skipped:
+                labels = ", ".join(slot_label(s) for s in skipped)
+                _log(f"  Shorts: skipped for today (no catch-up): {labels}")
     except Exception:
         pass
 
@@ -917,9 +994,20 @@ def main():
 
         if _should_run(state, now, last_attempt):
             forced = bool(state.get("force_run"))
+            trigger_hours = _get_trigger_hours(state)
+            catchup = (
+                not forced
+                and _runs_today(state) < state.get("videos_per_day", DEFAULT_VIDEOS_PER_DAY)
+                and trigger_hours
+                and now.hour > max(trigger_hours)
+            )
             if not forced:
-                last_attempt = (now.strftime("%Y-%m-%d"), now.hour)
-            _log(f"Trigger ({'FORCED' if forced else 'scheduled'}) — starting pipeline")
+                if now.hour in trigger_hours:
+                    last_attempt = (now.strftime("%Y-%m-%d"), now.hour)
+                elif catchup:
+                    last_attempt = (now.strftime("%Y-%m-%d"), "catchup")
+            label = "FORCED" if forced else ("catch-up" if catchup else "scheduled")
+            _log(f"Trigger ({label}) — starting pipeline")
             # Pulisci force_run PRIMA di partire: se la pipeline crasha,
             # il flag è già rimosso e il daemon non entra in loop infinito.
             state.pop("force_run", None)

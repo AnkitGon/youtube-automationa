@@ -180,7 +180,7 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
         "- Segments must follow script order; keywords must match what is being said in that line.\n\n"
         "JSON keys: title (max 70 chars), hook, script, angle, key_claims (array), "
         "payoff, description, tags (array), hashtags (include #Shorts), "
-        "visual_segments (array of {text, keywords, visual_intent, duration_hint}), "
+        "visual_segments (array of {text, keywords, visual_intent, duration_hint as number in seconds}), "
         "target_duration_seconds, source_type, cta (optional)."
     )
 

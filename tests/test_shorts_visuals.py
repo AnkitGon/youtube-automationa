@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from moduli.shorts.visuals import _build_search_queries, _is_generic_query, acquire_segment_clips
+from moduli.shorts.visuals import _build_search_queries, _is_generic_query, acquire_segment_clips, parse_duration_seconds
 
 
 class ShortsVisualsTests(unittest.TestCase):
@@ -21,6 +21,12 @@ class ShortsVisualsTests(unittest.TestCase):
         queries = _build_search_queries(seg)
         self.assertTrue(any("factory" in q.lower() for q in queries))
         self.assertFalse(any("abstract" in q.lower() for q in queries))
+
+    def test_parse_duration_seconds_accepts_suffix(self):
+        self.assertEqual(parse_duration_seconds("8s"), 8.0)
+        self.assertEqual(parse_duration_seconds("4 sec"), 4.0)
+        self.assertEqual(parse_duration_seconds(3.5), 3.5)
+        self.assertEqual(parse_duration_seconds("bad", default=2.0), 2.0)
 
     @patch("moduli.shorts.visuals.scarica_clips")
     def test_portrait_orientation_used(self, mock_scarica):

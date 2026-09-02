@@ -38,6 +38,11 @@ def _bool_env(name: str, default: bool = True) -> bool:
     return raw in {"1", "true", "yes", "on"}
 
 
+def manual_ignores_quota() -> bool:
+    """Manual /shorts now can run after the 3 scheduled slots are done."""
+    return _bool_env("SHORTS_MANUAL_IGNORE_QUOTA", True)
+
+
 def _int_list(raw: str, default: list[int]) -> list[int]:
     if not raw.strip():
         return list(default)

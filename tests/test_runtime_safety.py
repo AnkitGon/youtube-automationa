@@ -154,25 +154,71 @@ class RuntimeSafetyTests(unittest.TestCase):
             "GEMINI_API_KEY": "",
             "AI_FALLBACK_SERVICES": "openrouter,ollama_local",
         }), patch.object(ai_client, "_openrouter") as mock_or, \
+             patch.object(ai_client, "_ollama_local_reachable", return_value=True), \
              patch.object(ai_client, "_ollama_local", return_value="local") as mock_local:
             self.assertEqual(ai_client._fallback([{"role": "user", "content": "x"}]), "local")
         mock_or.assert_not_called()
         mock_local.assert_called_once()
 
-    def test_fallback_tries_groq_when_key_present(self):
+    def test_fallback_tries_openrouter_when_primary_not_openrouter(self):
         from moduli import ai_client
 
         with patch.dict(os.environ, {
-            "AI_SERVICE": "openrouter",
-            "GROQ_API_KEY": "gsk_test",
-            "GEMINI_API_KEY": "",
-            "AI_FALLBACK_SERVICES": "groq,gemini",
-        }), patch.object(ai_client, "_groq", return_value="from-groq") as mock_groq, \
-             patch.object(ai_client, "_gemini") as mock_gemini:
+            "AI_SERVICE": "ollama_cloud",
+            "OPENROUTER_API_KEY": "sk_test",
+            "AI_FALLBACK_SERVICES": "openrouter",
+        }), patch.object(ai_client, "_openrouter", return_value="from-or") as mock_or:
             result = ai_client._fallback([{"role": "user", "content": "x"}])
-        self.assertEqual(result, "from-groq")
-        mock_groq.assert_called_once()
-        mock_gemini.assert_not_called()
+        self.assertEqual(result, "from-or")
+        mock_or.assert_called_once()
+
+    def test_fallback_default_chain_is_openrouter_only(self):
+        from moduli import ai_client
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("AI_FALLBACK_SERVICES", None)
+            chain = ai_client._fallback_service_chain()
+        self.assertEqual(chain, ["openrouter"])
+
+    def test_long_form_catchup_after_trigger_hour(self):
+        import importlib
+
+        with patch.dict(os.environ, {
+            "TELEGRAM_BOT_TOKEN": "token",
+            "TELEGRAM_CHAT_ID": "123",
+            "AI_SERVICE": "openrouter",
+            "OPENROUTER_API_KEY": "key",
+            "AUTO_DERIVE_PIPELINE_TRIGGER": "0",
+            "PIPELINE_TRIGGER_HOURS": "9",
+        }, clear=False):
+            agent = importlib.import_module("agent")
+
+        from datetime import datetime, timezone
+        state = {"videos_per_day": 1, "runs_today": {}}
+        # 14 UTC — past trigger hour 9, quota not met
+        now = datetime(2026, 9, 2, 14, 30, tzinfo=timezone.utc)
+        self.assertTrue(agent._should_run(state, now, None))
+        self.assertFalse(agent._should_run(state, now, (now.strftime("%Y-%m-%d"), "catchup")))
+        self.assertTrue(agent._long_form_catchup_pending(state, now))
+
+    def test_long_form_disabled_via_env(self):
+        import importlib
+        import agent
+
+        with patch.dict(os.environ, {"LONG_FORM_ENABLED": "false"}, clear=False):
+            importlib.reload(agent)
+            from datetime import datetime, timezone
+            state = {"videos_per_day": 1, "runs_today": {}, "force_run": True}
+            now = datetime(2026, 9, 2, 14, 30, tzinfo=timezone.utc)
+            self.assertFalse(agent._should_run(state, now, None))
+            self.assertFalse(agent._long_form_catchup_pending(state, now))
+        importlib.reload(agent)
+
+    def test_ollama_local_skipped_when_unreachable(self):
+        from moduli import ai_client
+
+        with patch.object(ai_client, "_ollama_local_reachable", return_value=False):
+            self.assertFalse(ai_client._provider_available("ollama_local"))
 
     def test_short_script_is_retried_then_rejected(self):
         """Regressione: script da poche parole = video di pochi secondi —

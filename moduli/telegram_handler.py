@@ -340,6 +340,8 @@ def _execute_confirmed_action(state: dict, action: dict) -> str:
     payload = (action.get("payload") or "").strip()
 
     if action_type == "FORZA_ORA":
+        if not long_form_enabled():
+            return _LONG_FORM_DISABLED_MSG
         queue = state.get("topic_queue", [])
         if payload and (not queue or queue[0] != payload):
             from moduli.topic_history import try_reserve_topic
@@ -625,6 +627,12 @@ def _execute_actions(reply: str, state: dict, is_search: bool = False,
     return clean.strip(), added_topics, saved_memories, removed_memories, api_results, deferred_tasks
 
 from moduli.state_io import load_state as _load_state, save_state as _save_state
+from moduli.pipeline_flags import long_form_enabled
+
+_LONG_FORM_DISABLED_MSG = (
+    "⏸ <b>Long-form pipeline disabled</b> (LONG_FORM_ENABLED=false).\n"
+    "Shorts still run on schedule. Set LONG_FORM_ENABLED=true in .env to re-enable."
+)
 
 
 def _publish_hours(state: dict) -> list[int]:
@@ -730,6 +738,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     msg = (
         f"📡 <b>Agent Status</b>\n\n"
+        f"📹 Long-form: <b>{'ON' if long_form_enabled() else 'OFF'}</b>\n"
         f"{attivita}\n\n"
         f"🗓 Last run: {last}\n"
         f"📋 Topics in queue: {len(queue)}\n"
@@ -910,6 +919,9 @@ async def cmd_recap(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_forza(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not long_form_enabled():
+        await update.message.reply_text(_LONG_FORM_DISABLED_MSG, parse_mode="HTML")
+        return
     state = _load_state()
     state["force_run"] = True
     state.pop("publish_immediately", None)
@@ -918,6 +930,9 @@ async def cmd_forza(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_forzaora(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not long_form_enabled():
+        await update.message.reply_text(_LONG_FORM_DISABLED_MSG, parse_mode="HTML")
+        return
     topic = " ".join(ctx.args).strip() if ctx.args else ""
     state = _load_state()
     if topic:
@@ -1366,10 +1381,12 @@ async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         from moduli.shorts.scheduler import next_production_slots, slot_label
 
         lines = ["📱 <b>Next Shorts production slots</b>\n"]
-        for row in next_production_slots(cfg):
+        for row in next_production_slots(cfg, state=state):
+            src = row.get("source", "")
+            extra = f" ({html.escape(src)})" if src else ""
             lines.append(
                 f"  {html.escape(slot_label(row['slot']).title())}: "
-                f"{html.escape(row['local_time'])}"
+                f"{html.escape(row['local_time'])}{extra}"
             )
         await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         return
@@ -1399,11 +1416,118 @@ async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    if sub in {"now", "forza", "run"}:
+        publish_mode = "soon"
+        if len(args) > 1 and args[1].lower() == "next":
+            publish_mode = "next"
+        if state.get("pipeline_status"):
+            await update.message.reply_text(
+                "⏳ Short pipeline already running — wait for it to finish.",
+                parse_mode="HTML",
+            )
+            return
+        if not cfg.enabled or not state.get("enabled", True):
+            await update.message.reply_text("📱 Shorts pipeline is disabled. Use /shorts on first.")
+            return
+        from moduli.shorts.config import manual_ignores_quota
+
+        done = runs_today(state)
+        if done >= cfg.per_day and not manual_ignores_quota():
+            rows = state.get("today_shorts") or []
+            lines = [
+                f"📱 Daily Shorts quota reached ({done}/{cfg.per_day}).",
+                "",
+                "Today's Shorts are already done. Use /shorts today to review them.",
+            ]
+            if rows:
+                lines.append("")
+                for r in rows[-cfg.per_day:]:
+                    vid = r.get("video_id", "")
+                    title = html.escape(str(r.get("title", ""))[:45])
+                    url = f"https://youtube.com/shorts/{vid}" if vid else ""
+                    lines.append(f"• {title}" + (f"\n  {url}" if url else ""))
+            await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+            return
+
+        from moduli.shorts.scheduler import (
+            describe_manual_publish,
+            next_manual_slot_index,
+            refresh_shorts_scheduler_cache,
+            slot_label,
+        )
+
+        state = refresh_shorts_scheduler_cache(state, force=False)
+        cache = state.get("_scheduler_cache") or {}
+        slot_index = next_manual_slot_index(state, config=cfg)
+        publish_label = describe_manual_publish(
+            publish_mode,
+            slot_index=slot_index,
+            config=cfg,
+            state=state,
+            activity=cache.get("activity"),
+            geography=cache.get("geography"),
+            profiles_count=int(cache.get("profiles_count") or 0),
+        )
+        quota_note = ""
+        if done >= cfg.per_day:
+            quota_note = (
+                f"\n<i>Scheduled quota {done}/{cfg.per_day} — manual extra run.</i>\n"
+            )
+        await update.message.reply_text(
+            f"⚡ <b>Short pipeline started</b>\n"
+            f"Slot: {html.escape(slot_label(slot_index))}\n"
+            f"Publish: {html.escape(publish_label)}"
+            f"{quota_note}\n"
+            f"<i>You'll get a Telegram message when upload completes.</i>",
+            parse_mode="HTML",
+        )
+
+        loop = asyncio.get_event_loop()
+
+        def _run_manual() -> dict:
+            from moduli.shorts.pipeline import run_shorts_slot
+            return run_shorts_slot(
+                slot_index,
+                manual=True,
+                publish_mode=publish_mode,
+            )
+
+        try:
+            result = await loop.run_in_executor(None, _run_manual)
+        except Exception as e:
+            await update.message.reply_text(f"❌ Short pipeline failed: {html.escape(str(e))}")
+            return
+
+        if result.get("skipped"):
+            await update.message.reply_text(
+                f"⏭ Skipped: {html.escape(str(result.get('reason', 'unknown')))}",
+                parse_mode="HTML",
+            )
+            return
+        if failure := result.get("failure"):
+            await update.message.reply_text(
+                f"❌ Short failed: {html.escape(str(failure.get('reason', failure)))}",
+                parse_mode="HTML",
+            )
+            return
+        if success := result.get("success"):
+            vid = success.get("video_id", "")
+            sched = (success.get("schedule") or {}).get("local_publish_label", "")
+            await update.message.reply_text(
+                f"✅ <b>Short uploaded</b>\n"
+                f"{html.escape(success.get('title', '')[:60])}\n"
+                f"Publish: {html.escape(sched)}\n"
+                f"https://youtube.com/shorts/{html.escape(vid)}",
+                parse_mode="HTML",
+            )
+        return
+
     from moduli.shorts.scheduler import next_production_slots, production_hours_local, slot_label
 
     # Default status
     done = runs_today(state)
-    hours = production_hours_local(cfg)
+    hours = production_hours_local(cfg, state=state)
+    plan = state.get("daily_slot_plan") or {}
     enabled = cfg.enabled and state.get("enabled", True)
     last_batch = state.get("last_batch_at") or "never"
     status = state.get("pipeline_status") or {}
@@ -1412,15 +1536,22 @@ async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         f"  {slot_label(i).title()}: {h:02d}:00 {cfg.timezone}"
         for i, h in enumerate(hours[: cfg.per_day])
     ]
+    sched_note = ""
+    if plan:
+        sched_note = (
+            f"\nSchedule: {html.escape(str(plan.get('source', 'fallback')))} "
+            f"({html.escape(str(plan.get('confidence', 'LOW')))} confidence)"
+        )
     await update.message.reply_text(
         f"📱 <b>Shorts status</b>\n\n"
         f"Enabled: {'ON' if enabled else 'OFF'}\n"
-        f"Today: {done}/{cfg.per_day}\n"
+        f"Today: {done}/{cfg.per_day}{sched_note}\n"
         f"Production ({html.escape(cfg.timezone)}):\n"
         + "\n".join(slot_lines)
         + f"\nLast run: {html.escape(str(last_batch))}\n"
         f"Pipeline: {html.escape(str(step))}\n\n"
-        f"Commands: /shorts on|off|today|next|analytics|strategy",
+        f"Commands: /shorts on|off|today|next|now|analytics|strategy\n"
+        f"Manual: /shorts now (publish soon) · /shorts now next (next planned window)",
         parse_mode="HTML",
     )
 
@@ -1440,6 +1571,7 @@ async def cmd_orari(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     conf = last_sched.get("confidence", "LOW")
     await update.message.reply_text(
         f"📅 <b>Current schedule</b>\n\n"
+        f"📹 Long-form: <b>{'ON' if long_form_enabled() else 'OFF (disabled in .env)'}</b>\n"
         f"📹 Videos per day: {vpd}\n"
         f"✅ Produced today: {done}/{vpd}\n"
         f"🤖 Auto-scheduling: {'ON' if auto else 'OFF'}\n\n"

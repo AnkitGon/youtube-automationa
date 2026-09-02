@@ -39,9 +39,9 @@ OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openrouter/free")
 
 OPENAI_MODEL     = os.environ.get("OPENAI_MODEL",     "gpt-4o-mini")
 ANTHROPIC_MODEL  = os.environ.get("ANTHROPIC_MODEL",  "claude-3-5-haiku-20241022")
-GEMINI_MODEL     = os.environ.get("GEMINI_MODEL",     "gemini-2.0-flash")
+GEMINI_MODEL     = os.environ.get("GEMINI_MODEL",     "gemini-2.5-flash")
 MISTRAL_MODEL    = os.environ.get("MISTRAL_MODEL",    "mistral-small-latest")
-GROQ_MODEL       = os.environ.get("GROQ_MODEL",       "llama-3.3-70b-versatile")
+GROQ_MODEL       = os.environ.get("GROQ_MODEL",       "llama-3.1-8b-instant")
 DEEPSEEK_MODEL   = os.environ.get("DEEPSEEK_MODEL",   "deepseek-chat")
 XAI_MODEL        = os.environ.get("XAI_MODEL",        "grok-2-1212")
 COHERE_MODEL     = os.environ.get("COHERE_MODEL",     "command-r-plus-08-2024")
@@ -60,27 +60,103 @@ OLLAMA_LOCAL_MODEL = os.environ.get("OLLAMA_LOCAL_MODEL", "llama3.2")
 # Provider con limite token più alto (script lunghi, JSON strutturato)
 _HIGH_CAP_SERVICES = frozenset({"ollama_cloud", "ollama_local", "openrouter"})
 
-_OPENROUTER_MAX_ATTEMPTS = 3
+_OPENROUTER_MAX_ATTEMPTS = max(1, int(os.environ.get("OPENROUTER_MAX_ATTEMPTS", "4")))
+
+# Text-capable free models on OpenRouter (auto-rotated when one 429s/404s).
+# Override/extend via OPENROUTER_FALLBACK_MODELS; set OPENROUTER_USE_FREE_MODEL_POOL=0 to disable pool.
+_OPENROUTER_FREE_MODEL_POOL = [
+    "openrouter/free",
+    "minimax/minimax-m3:free",
+    "minimax/minimax-m2.7:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "z-ai/glm-5.2:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "poolside/laguna-s-2.1:free",
+    "poolside/laguna-xs-2.1:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "inclusionai/ling-3.0-flash-fin:free",
+    "cohere/north-mini-code:free",
+    "dots-studio/dots-3-note-preview:free",
+]
+
+_DEPRECATED_GEMINI_MODELS = {
+    "gemini-2.0-flash": "gemini-2.5-flash",
+    "models/gemini-2.0-flash": "gemini-2.5-flash",
+}
+
+
+def _normalize_gemini_model(model: str) -> str:
+    m = (model or "").strip()
+    return _DEPRECATED_GEMINI_MODELS.get(m, m)
+
+
+def _groq_model_chain() -> list[str]:
+    primary = (os.environ.get("GROQ_MODEL") or GROQ_MODEL or "").strip()
+    raw = os.environ.get(
+        "GROQ_FALLBACK_MODELS",
+        "llama-3.1-8b-instant,llama-3.3-70b-versatile",
+    )
+    chain: list[str] = []
+    for model in [primary, *[m.strip() for m in raw.split(",") if m.strip()]]:
+        if model and model not in chain:
+            chain.append(model)
+    return chain or ["llama-3.1-8b-instant"]
+
+
+def _gemini_model_chain() -> list[str]:
+    primary = _normalize_gemini_model(os.environ.get("GEMINI_MODEL") or GEMINI_MODEL)
+    raw = os.environ.get("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.0-flash-lite")
+    chain: list[str] = []
+    for model in [primary, *[m.strip() for m in raw.split(",") if m.strip()]]:
+        model = _normalize_gemini_model(model)
+        if model and model not in chain:
+            chain.append(model)
+    return chain or ["gemini-2.5-flash"]
+
+
+def _ollama_local_reachable() -> bool:
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.4):
+            return True
+    except OSError:
+        return False
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _openrouter_model_chain() -> list[str]:
-    """Modello primario + eventuali fallback da OPENROUTER_FALLBACK_MODELS."""
+    """Primary + env fallbacks + full free pool (deduped)."""
     primary = (os.environ.get("OPENROUTER_MODEL") or OPENROUTER_MODEL or "").strip()
-    default_fallbacks = "google/gemma-2-9b-it:free,openrouter/free"
-    raw_fallbacks = os.environ.get("OPENROUTER_FALLBACK_MODELS", default_fallbacks)
+    raw_fallbacks = os.environ.get("OPENROUTER_FALLBACK_MODELS", "")
     fallbacks = [m.strip() for m in raw_fallbacks.split(",") if m.strip()]
+    use_pool = os.environ.get("OPENROUTER_USE_FREE_MODEL_POOL", "1").lower() not in {
+        "0", "false", "no",
+    }
     chain: list[str] = []
-    for model in [primary, *fallbacks]:
+    for model in [primary, *fallbacks, *(_OPENROUTER_FREE_MODEL_POOL if use_pool else [])]:
         if model and model not in chain:
             chain.append(model)
+    max_models = int(os.environ.get("OPENROUTER_MAX_MODELS_IN_CHAIN", "0") or "0")
+    if max_models > 0:
+        chain = chain[:max_models]
     return chain or ["openrouter/free"]
+
+
+def _openrouter_reasoning_payload(model: str) -> dict:
+    """Only nemotron-lightning needs reasoning disabled; others break with effort:none."""
+    if "nemotron-3.5-lightning" in model:
+        return {"reasoning": {"effort": "none"}}
+    return {}
 
 
 def _fallback_service_chain() -> list[str]:
     """Provider order when primary fails (env AI_FALLBACK_SERVICES, comma-separated)."""
-    default = "groq,gemini,openrouter,ollama_local"
+    default = "openrouter"
     raw = os.environ.get("AI_FALLBACK_SERVICES", default)
     return [s.strip().lower() for s in raw.split(",") if s.strip()]
 
@@ -88,7 +164,7 @@ def _fallback_service_chain() -> list[str]:
 def _provider_available(svc: str) -> bool:
     """True if we can attempt this provider (key present or local/no-key service)."""
     if svc == "ollama_local":
-        return True
+        return _ollama_local_reachable()
     if svc == "ollama_cloud":
         return bool(os.environ.get("OLLAMA_API_KEY", "").strip())
     key_name = {
@@ -167,18 +243,18 @@ def _openrouter(messages: list, max_tokens: int = 4096, json_mode: bool = False)
 
     models = _openrouter_model_chain()
     last_err: str | None = None
+    rotate_on_429 = os.environ.get("OPENROUTER_ROTATE_ON_429", "1").lower() not in {
+        "0", "false", "no",
+    }
 
     for model in models:
-        # effort:none — il modello non deve emettere reasoning in content.
-        # exclude:true su nemotron mette il reasoning DENTRO content (bug osservato).
-        reasoning_cfg = {"effort": "none"}
         payload: dict = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": _temp(),
             "seed": _seed(),
-            "reasoning": reasoning_cfg,
+            ** _openrouter_reasoning_payload(model),
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -201,10 +277,23 @@ def _openrouter(messages: list, max_tokens: int = 4096, json_mode: bool = False)
             )
 
             if status == 429:
-                wait = 10 * (attempt + 1)
+                last_err = "429 rate limit"
+                if rotate_on_429:
+                    print(f"[OpenRouter] 429 on {model} — rotating to next free model", flush=True)
+                    break
+                base = max(10, int(os.environ.get("OPENROUTER_RATE_LIMIT_WAIT_SEC", "15")))
+                wait = base * (attempt + 1)
                 print(f"[OpenRouter] 429 rate limit — waiting {wait}s...", flush=True)
                 time.sleep(wait)
                 continue
+            if status in (400, 404, 403):
+                try:
+                    err_body = resp.json().get("error", {}).get("message", resp.text[:120])
+                except Exception:
+                    err_body = resp.text[:120]
+                last_err = f"HTTP {status}: {err_body}"
+                print(f"[OpenRouter] {model} unavailable ({status}) — next model", flush=True)
+                break
             if status >= 500:
                 wait = 5 * (attempt + 1)
                 print(f"[OpenRouter] {status} provider error — waiting {wait}s...", flush=True)
@@ -237,9 +326,9 @@ def _openrouter(messages: list, max_tokens: int = 4096, json_mode: bool = False)
                     flush=True,
                 )
                 if finish_reason == "length" and not json_mode:
-                    # Ultimo tentativo: forza reasoning off e più token
-                    payload["reasoning"] = {"effort": "none"}
                     payload["max_tokens"] = max(max_tokens, max_tokens * 2)
+                    if "nemotron-3.5-lightning" in model:
+                        payload["reasoning"] = {"effort": "none"}
                 last_err = f"empty content (finish_reason={finish_reason})"
                 if attempt + 1 < _OPENROUTER_MAX_ATTEMPTS:
                     time.sleep(5 * (attempt + 1))
@@ -301,7 +390,7 @@ def _gemini(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> 
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY missing in .env")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(GEMINI_MODEL)
+
     history, prompt = [], ""
     for m in messages:
         if m["role"] == "system":
@@ -311,12 +400,31 @@ def _gemini(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> 
             prompt = m["content"]
         elif m["role"] == "assistant":
             history.append({"role": "model", "parts": [m["content"]]})
+
     gen_cfg = {"max_output_tokens": max_tokens, "temperature": _temp()}
     if json_mode:
         gen_cfg["response_mime_type"] = "application/json"
-    chat = model.start_chat(history=history)
-    resp = chat.send_message(prompt, generation_config=gen_cfg)
-    return resp.text.strip()
+
+    last_err: Exception | None = None
+    for model_name in _gemini_model_chain():
+        try:
+            model = genai.GenerativeModel(model_name)
+            chat = model.start_chat(history=history)
+            resp = chat.send_message(prompt, generation_config=gen_cfg)
+            text = (resp.text or "").strip()
+            if text:
+                if model_name != _normalize_gemini_model(os.environ.get("GEMINI_MODEL") or GEMINI_MODEL):
+                    print(f"[Gemini] using fallback model: {model_name}", flush=True)
+                return text
+            last_err = RuntimeError(f"Gemini ({model_name}): empty response")
+        except Exception as e:
+            err = str(e).lower()
+            last_err = e
+            if "404" in err or "not found" in err or "no longer available" in err:
+                print(f"[Gemini] model {model_name} unavailable — trying next", flush=True)
+                continue
+            raise
+    raise RuntimeError(f"Gemini: all models failed — last error: {last_err}")
 
 
 def _mistral(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> str:
@@ -350,17 +458,39 @@ def _groq(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> st
     if not api_key:
         raise RuntimeError("GROQ_API_KEY missing in .env")
     client = Groq(api_key=api_key)
-    kwargs = {
-        "model": GROQ_MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": _temp(),
-        "seed": _seed(),
-    }
-    if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
-    resp = client.chat.completions.create(**kwargs)
-    return resp.choices[0].message.content.strip()
+
+    last_err: Exception | None = None
+    for model_name in _groq_model_chain():
+        kwargs = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": _temp(),
+            "seed": _seed(),
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        try:
+            resp = client.chat.completions.create(**kwargs)
+            content = (resp.choices[0].message.content or "").strip()
+            if content:
+                if model_name != (os.environ.get("GROQ_MODEL") or GROQ_MODEL):
+                    print(f"[Groq] using fallback model: {model_name}", flush=True)
+                return content
+            last_err = RuntimeError(f"Groq ({model_name}): empty content")
+        except Exception as e:
+            err = str(e).lower()
+            last_err = e
+            if "404" in err or "model_not_found" in err or "does not exist" in err:
+                print(f"[Groq] model {model_name} unavailable — trying next", flush=True)
+                continue
+            if "429" in err or "rate limit" in err:
+                wait = 8 * (1 + list(_groq_model_chain()).index(model_name))
+                print(f"[Groq] rate limit on {model_name} — waiting {wait}s...", flush=True)
+                time.sleep(wait)
+                continue
+            raise
+    raise RuntimeError(f"Groq: all models failed — last error: {last_err}")
 
 
 def _deepseek(messages: list, max_tokens: int = 4096, json_mode: bool = False) -> str:
@@ -531,12 +661,24 @@ def _fallback(messages: list, max_tokens: int = 4096, json_mode: bool = False) -
 
     for name in _fallback_service_chain():
         if name == primary_svc:
+            # Primary is OpenRouter and chain is openrouter-only → wait and retry model chain
+            if name == "openrouter" and _provider_available("openrouter"):
+                wait = max(15, int(os.environ.get("OPENROUTER_FALLBACK_RETRY_WAIT_SEC", "30")))
+                print(f"[AI] Retrying OpenRouter model chain after {wait}s...", flush=True)
+                time.sleep(wait)
+                try:
+                    cap = _token_cap(name, max_tokens)
+                    return _openrouter(messages, cap, json_mode=json_mode)
+                except Exception as e:
+                    print(f"[AI] OpenRouter retry failed: {e}", flush=True)
+                    last_err = e
             continue
         if name not in _PROVIDERS:
             print(f"[AI] Fallback skip unknown service: {name}", flush=True)
             continue
         if not _provider_available(name):
-            print(f"[AI] Fallback skip {name} (no API key / not configured)", flush=True)
+            reason = "not running" if name == "ollama_local" else "no API key / not configured"
+            print(f"[AI] Fallback skip {name} ({reason})", flush=True)
             continue
         fn = globals().get(f"_{name}")
         if not callable(fn):

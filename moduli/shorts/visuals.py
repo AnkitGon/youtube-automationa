@@ -36,6 +36,25 @@ _CONCRETE_FALLBACKS = (
 )
 
 
+def parse_duration_seconds(value, default: float = 3.0) -> float:
+    """Parse LLM duration hints like 8, 3.5, '8s', or '4 sec'."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if not s:
+            return default
+        m = re.match(r"^([\d.]+)", s)
+        if m:
+            return float(m.group(1))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _tokens(text: str) -> set[str]:
     return {
         w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
@@ -99,6 +118,8 @@ def refine_segment_visuals(segment: dict, *, segment_index: int = 0) -> dict:
     seg["keywords"] = good[:4]
     if not (seg.get("visual_intent") or "").strip():
         seg["visual_intent"] = f"{good[0]} {good[1] if len(good) > 1 else 'closeup'}"
+    if "duration_hint" in seg:
+        seg["duration_hint"] = parse_duration_seconds(seg.get("duration_hint"))
     return seg
 
 
@@ -211,7 +232,7 @@ def acquire_segment_clips(
         if not isinstance(seg, dict):
             continue
 
-        duration = float(seg.get("duration_hint") or 3.0)
+        duration = parse_duration_seconds(seg.get("duration_hint"), default=3.0)
         duration = max(cfg.segment_min_seconds, min(cfg.segment_max_seconds, duration))
 
         clip_path = None

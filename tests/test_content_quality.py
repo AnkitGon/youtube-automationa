@@ -4,6 +4,7 @@ import unittest
 
 from moduli.content_quality import (
     detect_ai_filler,
+    prepare_content_for_validation,
     run_content_quality_gate,
     validate_title_thumbnail_pair,
     validate_viewer_value,
@@ -62,6 +63,43 @@ class ContentQualityTests(unittest.TestCase):
         }
         ok, errors = run_content_quality_gate(content, "How Nokia Lost the Smartphone War", {})
         self.assertTrue(ok, errors)
+
+    def test_prepare_content_normalizes_line_breaks(self):
+        raw = {
+            "title": "Mars Colony Failure",
+            "thumbnail_phrase": "TOO LATE",
+            "description": "Why the mission failed.",
+            "tags": ["mars", "space"],
+            "script": "Line one.\n\nLine two.\nLine three.\nLine four.",
+            "visual_segments": [{"keyword": "mars habitat", "text_excerpt": "Line one"}],
+        }
+        prepared = prepare_content_for_validation(raw, topic="Mars colony")
+        self.assertNotIn("\n", prepared["script"])
+        self.assertIn("video_keywords", prepared)
+
+    def test_quality_gate_relaxes_on_late_attempt(self):
+        script = (
+            "Nokia was big.\n"
+            "Apple arrived.\n"
+            "Everything changed.\n"
+            "Nokia failed.\n"
+        ) * 30
+        content = {
+            "title": "How Nokia Lost the Smartphone War",
+            "thumbnail_phrase": "TOO LATE",
+            "script": script,
+            "video_keywords": ["nokia phone", "smartphone timeline"],
+            "visual_segments": [{"keyword": "nokia phone", "text_excerpt": "Nokia was big"}],
+        }
+        ok_strict, errors_strict = run_content_quality_gate(
+            content, "How Nokia Lost the Smartphone War", {}, attempt=0,
+        )
+        ok_late, errors_late = run_content_quality_gate(
+            content, "How Nokia Lost the Smartphone War", {}, attempt=4, max_attempts=5,
+        )
+        self.assertFalse(ok_strict)
+        self.assertTrue(any("line breaks" in e or "short sentences" in e for e in errors_strict))
+        self.assertTrue(ok_late, errors_late)
 
 
 class ResearchTests(unittest.TestCase):

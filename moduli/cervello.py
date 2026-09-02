@@ -656,8 +656,18 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
     max_attempts = 5
     for attempt in range(max_attempts):
         try:
-            raw = chat_ollama(prompt, max_tokens=8192, json_mode=True)
-            content = parse_content_json(raw)
+            attempt_prompt = prompt
+            if last_err:
+                attempt_prompt += (
+                    f"\n\nPREVIOUS ATTEMPT FAILED — fix this:\n{last_err}\n"
+                    "Reply with complete JSON. Must include video_keywords (array of 12-18 "
+                    "English stock-search phrases) and visual_segments."
+                )
+            max_tokens = min(16384, 8192 + attempt * 2048)
+            raw = chat_ollama(attempt_prompt, max_tokens=max_tokens, json_mode=True)
+            content = parse_content_json(raw, topic=topic)
+            from moduli.content_quality import prepare_content_for_validation
+            content = prepare_content_for_validation(content, topic=topic)
             title = (content.get("title") or "").strip()
             if title:
                 try:
@@ -677,12 +687,17 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
                     f"per un video da ~{target_minutes} minuti"
                 )
             avoid_errors = validate_content_fields(content, strategy, pref)
-            if avoid_errors:
+            if avoid_errors and attempt < max_attempts - 1:
                 raise ValueError("; ".join(avoid_errors))
-            from moduli.content_quality import auto_fix_thumbnail_phrase
-            if auto_fix_thumbnail_phrase(content):
-                print("[cervello] Thumbnail phrase auto-corrected to complement title", flush=True)
-            q_ok, q_errors = run_content_quality_gate(content, topic, strategy)
+            if avoid_errors:
+                print(
+                    f"[cervello] Avoid-pattern warnings ignored on final attempt: "
+                    f"{'; '.join(avoid_errors[:2])}",
+                    flush=True,
+                )
+            q_ok, q_errors = run_content_quality_gate(
+                content, topic, strategy, attempt=attempt, max_attempts=max_attempts,
+            )
             if not q_ok:
                 raise ValueError("Quality gate: " + "; ".join(q_errors[:4]))
             from moduli.narration_quality import narration_summary_for_log

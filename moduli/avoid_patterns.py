@@ -48,6 +48,32 @@ def _parse_pattern_strings(raw) -> list[str]:
     return [p.strip().strip('"\'') for p in parts if p.strip()]
 
 
+def _is_title_like_pattern(pattern: str) -> bool:
+    return bool(re.match(r"^title\s+like:\s*.+", (pattern or "").strip(), re.I))
+
+
+def _filter_preference_conflicts(patterns: list[str], pref: dict | None) -> list[str]:
+    """Drop avoid rules that contradict active channel preferences."""
+    pref = pref or {}
+    clip = (pref.get("stile_clip") or "").lower()
+    thumb = (pref.get("stile_thumbnail") or "").lower()
+    filtered: list[str] = []
+    for pattern in patterns:
+        pat = (pattern or "").strip()
+        low = pat.lower()
+        if not pat:
+            continue
+        m = re.match(r"^video style:\s*(.+)$", pat, re.I)
+        if m and m.group(1).strip().lower() in clip:
+            continue
+        if "video style: cinematic" in low and "cinematic" in clip:
+            continue
+        if "generic ai-art" in low and ("cinematic" in thumb or "documentary" in thumb):
+            continue
+        filtered.append(pat)
+    return filtered
+
+
 def collect_avoid_patterns(strategy: dict | None = None, pref: dict | None = None) -> list[str]:
     """Unisce tutte le fonti avoid in lista deduplicata."""
     strategy = strategy or {}
@@ -103,7 +129,7 @@ def collect_avoid_patterns(strategy: dict | None = None, pref: dict | None = Non
     except Exception:
         pass
 
-    return patterns
+    return _filter_preference_conflicts(patterns, pref)
 
 
 def _normalize(text: str) -> str:
@@ -185,22 +211,25 @@ def validate_content_fields(
     patterns = collect_avoid_patterns(strategy, pref)
     if not patterns:
         return []
+    title_only = [p for p in patterns if _is_title_like_pattern(p)]
+    general = [p for p in patterns if not _is_title_like_pattern(p)]
     errors: list[str] = []
     checks = (
-        ("title", content.get("title") or ""),
-        ("thumbnail_phrase", content.get("thumbnail_phrase") or ""),
-        ("thumbnail_description", content.get("thumbnail_description") or ""),
-        ("description", content.get("description") or ""),
+        ("title", content.get("title") or "", title_only + general),
+        ("thumbnail_phrase", content.get("thumbnail_phrase") or "", title_only + general),
+        ("thumbnail_description", content.get("thumbnail_description") or "", general),
+        ("description", content.get("description") or "", general),
     )
     script = content.get("script") or ""
     if script:
         opening = " ".join(script.split()[:90])
-        checks = checks + (("script opening", opening),)
+        # Past video titles must not block new scripts — title field only.
+        checks = checks + (("script opening", opening, general),)
 
-    for field, text in checks:
-        if not text:
+    for field, text, field_patterns in checks:
+        if not text or not field_patterns:
             continue
-        hit = find_avoid_match(text, patterns)
+        hit = find_avoid_match(text, field_patterns)
         if hit:
             errors.append(f"{field} matches avoided pattern '{hit}'")
     return errors

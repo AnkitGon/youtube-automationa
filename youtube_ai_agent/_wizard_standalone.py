@@ -265,7 +265,7 @@ def _test_gemini(key: str) -> tuple[bool, str]:
     try:
         import google.generativeai as genai
         genai.configure(api_key=key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         model.generate_content("Hi", generation_config={"max_output_tokens": 5})
         return True, ""
     except Exception as e:

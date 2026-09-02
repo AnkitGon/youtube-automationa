@@ -154,10 +154,41 @@ class PublishSchedulerTests(unittest.TestCase):
         dt = datetime(2026, 9, 5, 17, 0, tzinfo=timezone.utc)
         self.assertEqual(format_youtube_publish_at(dt), "2026-09-05T17:00:00Z")
 
-    def test_pipeline_trigger_independent_when_auto_scheduling(self):
+    def test_pipeline_trigger_derived_from_publish_time(self):
+        cfg = SchedulerConfig(
+            default_publish_time="18:00",
+            default_publish_timezone="Asia/Kolkata",
+            pipeline_trigger_hours=[14],
+        )
+        state = {"auto_scheduling": True}
+        with patch.dict(os.environ, {"AUTO_DERIVE_PIPELINE_TRIGGER": "1", "PRODUCTION_LEAD_HOURS": "3"}):
+            hours = resolve_pipeline_trigger_hours(state, cfg)
+        # 18:00 IST = 12:30 UTC → minus 3h = 09:30 UTC
+        self.assertEqual(hours, [9])
+
+    def test_pipeline_trigger_env_fallback_when_auto_derive_off(self):
         state = {"auto_scheduling": True, "best_hours_utc": [20]}
         hours = resolve_pipeline_trigger_hours(state, self.cfg)
+        with patch.dict(os.environ, {"AUTO_DERIVE_PIPELINE_TRIGGER": "0"}):
+            hours = resolve_pipeline_trigger_hours(state, self.cfg)
         self.assertEqual(hours, [14])
+
+    def test_same_day_publish_when_default_slot_passed(self):
+        state = {"auto_scheduling": True, "video_ids": []}
+        # Sep 2 2026 15:17 UTC = 20:47 IST — 18:00 slot already passed
+        now = datetime(2026, 9, 2, 15, 17, tzinfo=timezone.utc)
+        cfg = SchedulerConfig(
+            default_publish_time="18:00",
+            default_publish_timezone="Asia/Kolkata",
+            analytics_min_videos=3,
+        )
+        with patch.dict(os.environ, {"SCHEDULER_SAME_DAY_PUBLISH": "1", "SCHEDULER_SAME_DAY_MIN_LEAD_MINUTES": "30"}):
+            dec = compute_publish_schedule(
+                state, now=now, activity=None, geography=None, video_count=0, config=cfg
+            )
+        local = dec.publish_at_utc.astimezone(ZoneInfo("Asia/Kolkata"))
+        self.assertEqual(local.date(), now.astimezone(ZoneInfo("Asia/Kolkata")).date())
+        self.assertGreater(dec.publish_at_utc, now)
 
 
 class TopicDedupSmokeTest(unittest.TestCase):
