@@ -719,6 +719,8 @@ def genera_contenuto(topic: str, strategy: dict = None) -> dict:
                 "research_snippet_count": len(research.get("snippets") or []),
             }
             print(f"[cervello] {quality_summary_for_log(content, topic)}", flush=True)
+            from moduli.hashtags import fix_spaced_hashtags
+            content["description"] = fix_spaced_hashtags(content.get("description") or "")
             from moduli.experimentation import classify_video_strategy
             content["_strategy_meta"]["experimentation"] = classify_video_strategy(
                 topic, strategy, content

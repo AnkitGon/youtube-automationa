@@ -7,6 +7,7 @@ from http.client import RemoteDisconnected
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from moduli.google_auth import get_credentials
+from moduli.hashtags import append_hashtags_to_description, fix_spaced_hashtags
 from moduli.publish_scheduler import (
     compute_publish_schedule,
     format_youtube_publish_at,
@@ -157,7 +158,7 @@ def pubblica_video(
     body = {
         "snippet": {
             "title": metadati["title"],
-            "description": metadati["description"],
+            "description": fix_spaced_hashtags(metadati.get("description") or ""),
             "tags": metadati["tags"],
             "categoryId": "28",  # Science & Technology
             "defaultLanguage": "en",
@@ -206,11 +207,13 @@ def pubblica_short(
     privacy_status: str = "private",
 ) -> str:
     """Upload a YouTube Short — thin wrapper around pubblica_video."""
-    desc = (metadati.get("description") or "").strip()
-    hashtags = metadati.get("hashtags") or ["#Shorts"]
-    if "#Shorts" not in desc and "#shorts" not in desc.lower():
-        tag_line = " ".join(hashtags[:5])
-        desc = f"{desc}\n\n{tag_line}".strip() if desc else tag_line
+    desc = append_hashtags_to_description(
+        metadati.get("description") or "",
+        metadati.get("hashtags") or ["#Shorts"],
+        default=["#Shorts"],
+        max_count=5,
+        required="#Shorts",
+    )
 
     # Ensure thumbnail exists (required by pubblica_video)
     if not thumbnail_path or not os.path.exists(thumbnail_path):

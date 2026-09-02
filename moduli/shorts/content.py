@@ -12,6 +12,7 @@ from moduli.research import build_research_brief
 from moduli.shorts.config import ShortsConfig, load_config
 from moduli.shorts.history import find_duplicate, is_summary_of
 from moduli.shorts.strategy import guidance_block, load_strategy
+from moduli.hashtags import fix_spaced_hashtags, normalize_hashtags
 from moduli.shorts.visuals import refine_visual_segments, segment_search_ready
 
 SHORTS_CONTENT_FIELDS = frozenset({
@@ -202,8 +203,9 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
             log_prefix="[shorts/content]",
         )
         content.setdefault("source_type", concept.get("source_type", "evergreen"))
-        content.setdefault("hashtags", ["#Shorts"])
         content.setdefault("cta", "")
+        content["hashtags"] = normalize_hashtags(content.get("hashtags"), default=["#Shorts"])
+        content["description"] = fix_spaced_hashtags(content.get("description") or "")
         content = _ensure_script_starts_with_hook(content)
         content = refine_visual_segments(content)
 
