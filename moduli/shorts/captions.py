@@ -13,7 +13,40 @@ def _ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
-def _word_groups(script: str, group_size: int = 4) -> list[str]:
+def resolve_caption_font_size(height: int, font_size: int | None = None) -> int:
+    """Pick a mobile-readable caption size for 9:16 Shorts (~4.5% of frame height)."""
+    if font_size and font_size > 0:
+        return font_size
+    # ~86px at 1920p — much more legible than the old 52px default
+    return max(72, int(round(height * 0.045)))
+
+
+def caption_layout(
+    *,
+    width: int = 1080,
+    height: int = 1920,
+    font_size: int | None = None,
+) -> dict[str, int]:
+    """ASS style numbers tuned for YouTube Shorts on mobile."""
+    base = resolve_caption_font_size(height, font_size)
+    scale = height / 1920
+    outline = max(5, int(round(6 * scale)))
+    shadow = max(2, int(round(2 * scale)))
+    hook_outline = outline + 1
+    return {
+        "font_size": base,
+        "hook_font_size": base + max(8, int(round(10 * scale))),
+        "outline": outline,
+        "hook_outline": hook_outline,
+        "shadow": shadow,
+        "hook_shadow": shadow + 1,
+        # Keep captions above Shorts UI chrome (channel name, buttons, description)
+        "margin_v": int(height * 0.22),
+        "margin_lr": max(48, int(width * 0.06)),
+    }
+
+
+def _word_groups(script: str, group_size: int = 3) -> list[str]:
     words = re.findall(r"\S+", (script or "").strip())
     groups = []
     for i in range(0, len(words), group_size):
@@ -28,18 +61,21 @@ def generate_ass(
     *,
     width: int = 1080,
     height: int = 1920,
-    font_size: int = 52,
+    font_size: int | None = None,
     hook_words: str = "",
+    uppercase: bool = True,
+    words_per_group: int = 3,
 ) -> str:
     """Generate ASS subtitle file timed proportionally to audio duration."""
-    groups = _word_groups(script, group_size=4)
+    layout = caption_layout(width=width, height=height, font_size=font_size)
+    groups = _word_groups(script, group_size=max(2, words_per_group))
     if not groups:
         groups = [script[:80]] if script else ["..."]
 
     total_chars = sum(len(g) for g in groups) or 1
     t = 0.0
     events = []
-    hook_set = set(w.lower() for w in hook_words.split() if len(w) > 2)
+    hook_set = {w.lower() for w in hook_words.split() if len(w) > 2}
 
     for group in groups:
         frac = len(group) / total_chars
@@ -47,12 +83,15 @@ def generate_ass(
         end = min(t + dur, audio_duration)
         style = "Hook" if any(w.lower() in hook_set for w in group.split()) else "Default"
         text = group.replace("\n", " ")
+        if uppercase:
+            text = text.upper()
         events.append(
             f"Dialogue: 0,{_ass_time(t)},{_ass_time(end)},{style},,0,0,0,,{text}"
         )
         t = end
 
-    margin_v = int(height * 0.12)
+    fs = layout["font_size"]
+    hfs = layout["hook_font_size"]
     ass = f"""[Script Info]
 Title: Shorts Captions
 ScriptType: v4.00+
@@ -61,8 +100,8 @@ PlayResY: {height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial Black,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,40,40,{margin_v},1
-Style: Hook,Arial Black,{font_size + 4},&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,40,40,{margin_v},1
+Style: Default,Arial Black,{fs},&H00FFFFFF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,{layout["outline"]},{layout["shadow"]},2,{layout["margin_lr"]},{layout["margin_lr"]},{layout["margin_v"]},1
+Style: Hook,Arial Black,{hfs},&H0000FFFF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,{layout["hook_outline"]},{layout["hook_shadow"]},2,{layout["margin_lr"]},{layout["margin_lr"]},{layout["margin_v"]},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

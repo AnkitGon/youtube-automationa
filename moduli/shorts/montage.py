@@ -81,7 +81,9 @@ def _concat_segments(segment_paths: list[str], output_path: str) -> None:
 
 def _burn_captions(video_path: str, ass_path: str, output_path: str, width: int, height: int) -> None:
     ff = ffmpeg_path()
-    vf = _vertical_vf(width, height, ass_path)
+    # Segments are already 9:16 — burn ASS directly to avoid rescale shrinking text
+    escaped = ass_path.replace("\\", "/").replace(":", "\\:")
+    vf = f"subtitles='{escaped}'"
     cmd = [
         ff, "-y", "-i", video_path,
         "-vf", vf,

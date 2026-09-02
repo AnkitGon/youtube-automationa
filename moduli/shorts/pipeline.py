@@ -192,8 +192,10 @@ def run_single_short(
             paths["ass"],
             width=cfg.width,
             height=cfg.height,
-            font_size=cfg.caption_font_size,
+            font_size=cfg.caption_font_size or None,
             hook_words=content.get("hook", ""),
+            uppercase=cfg.caption_uppercase,
+            words_per_group=cfg.caption_words_per_group,
         )
 
         set_pipeline_status("render", slot_index)

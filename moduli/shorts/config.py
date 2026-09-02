@@ -21,7 +21,9 @@ class ShortsConfig:
     similarity_threshold: float = 0.78
     width: int = 1080
     height: int = 1920
-    caption_font_size: int = 52
+    caption_font_size: int = 0  # 0 = auto (~4.5% of frame height)
+    caption_uppercase: bool = True
+    caption_words_per_group: int = 3
     segment_min_seconds: float = 1.5
     segment_max_seconds: float = 4.0
     analytics_min_videos: int = 6
@@ -76,7 +78,9 @@ def load_config() -> ShortsConfig:
         similarity_threshold=float(os.environ.get("SHORTS_SIMILARITY_THRESHOLD", "0.78")),
         width=int(os.environ.get("SHORTS_WIDTH", "1080")),
         height=int(os.environ.get("SHORTS_HEIGHT", "1920")),
-        caption_font_size=int(os.environ.get("SHORTS_CAPTION_FONT_SIZE", "52")),
+        caption_font_size=int(os.environ.get("SHORTS_CAPTION_FONT_SIZE", "0")),
+        caption_uppercase=_bool_env("SHORTS_CAPTION_UPPERCASE", True),
+        caption_words_per_group=max(2, int(os.environ.get("SHORTS_CAPTION_WORDS_PER_GROUP", "3"))),
         segment_min_seconds=float(os.environ.get("SHORTS_SEGMENT_MIN_SECONDS", "1.5")),
         segment_max_seconds=float(os.environ.get("SHORTS_SEGMENT_MAX_SECONDS", "4")),
         analytics_min_videos=int(os.environ.get("SHORTS_ANALYTICS_MIN_VIDEOS", "6")),
