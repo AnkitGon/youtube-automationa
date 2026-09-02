@@ -232,6 +232,7 @@ def run_single_short(
 
     except Exception as e:
         record_failure(slot_index, str(e), concept)
+        clear_pipeline_status()
         _log(f"Slot {slot_index} FAILED: {e}\n{traceback.format_exc()[-500:]}")
         return None
 

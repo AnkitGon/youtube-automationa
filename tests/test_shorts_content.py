@@ -4,6 +4,7 @@ import unittest
 
 from moduli.shorts.config import ShortsConfig
 from moduli.shorts.content import _ensure_script_starts_with_hook, _validate_structure, run_shorts_content_gate
+from moduli.shorts.visuals import refine_segment_visuals, refine_visual_segments, segment_search_ready
 
 
 def _sample_content(**overrides):
@@ -85,6 +86,27 @@ class ShortsContentTests(unittest.TestCase):
         )
         fixed = _ensure_script_starts_with_hook(_sample_content(hook=hook, script=body))
         self.assertTrue(fixed["script"].startswith(hook))
+        ok, errors = run_shorts_content_gate(fixed, self.concept, self.cfg)
+        self.assertTrue(ok, errors)
+
+    def test_abstract_keywords_auto_fixed(self):
+        content = _sample_content(
+            visual_segments=[
+                {
+                    "text": "Nokia had 50% market share before one decision changed everything.",
+                    "keywords": ["technology", "innovation"],
+                    "visual_intent": "",
+                },
+                {
+                    "text": "Apple launched the iPhone and Nokia dismissed touchscreens as a fad.",
+                    "keywords": ["digital transformation", "future tech"],
+                    "visual_intent": "",
+                },
+            ],
+        )
+        fixed = refine_visual_segments(content)
+        for seg in fixed["visual_segments"]:
+            self.assertTrue(segment_search_ready(seg), seg)
         ok, errors = run_shorts_content_gate(fixed, self.concept, self.cfg)
         self.assertTrue(ok, errors)
 

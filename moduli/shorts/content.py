@@ -12,7 +12,7 @@ from moduli.research import build_research_brief
 from moduli.shorts.config import ShortsConfig, load_config
 from moduli.shorts.history import find_duplicate, is_summary_of
 from moduli.shorts.strategy import guidance_block, load_strategy
-from moduli.shorts.visuals import _is_generic_query
+from moduli.shorts.visuals import refine_visual_segments, segment_search_ready
 
 SHORTS_CONTENT_FIELDS = frozenset({
     "title", "hook", "script", "angle", "key_claims", "payoff",
@@ -96,8 +96,8 @@ def _validate_structure(content: dict, cfg: ShortsConfig) -> list[str]:
             kws = seg.get("keywords") or []
             if len(kws) < 2:
                 errors.append(f"segment {i}: need at least 2 concrete keywords")
-            elif any(_is_generic_query(str(k)) for k in kws):
-                errors.append(f"segment {i}: keywords too abstract for stock search")
+            elif not segment_search_ready(seg):
+                errors.append(f"segment {i}: no concrete stock search terms")
             text = (seg.get("text") or "").strip()
             if len(text.split()) < 3:
                 errors.append(f"segment {i}: text too short — tie to narration line")
@@ -174,6 +174,7 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
         "- `keywords`: 2-4 concrete English words for Pexels video search (filmed objects/scenes).\n"
         "  GOOD: ['factory', 'assembly line'], ['hospital', 'MRI scanner'], ['laptop', 'typing closeup']\n"
         "  BAD: ['technology', 'abstract'], ['innovation', 'concept'], ['digital transformation']\n"
+        "  Never use alone: technology, innovation, trends, futuristic, digital transformation.\n"
         "- `visual_intent`: one specific filmed scene (e.g. 'worker inspecting car engine').\n"
         "- Segments must follow script order; keywords must match what is being said in that line.\n\n"
         "JSON keys: title (max 70 chars), hook, script, angle, key_claims (array), "
@@ -183,7 +184,8 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
     )
 
     last_errors: list[str] = []
-    for attempt in range(3):
+    max_attempts = 5
+    for attempt in range(max_attempts):
         attempt_prompt = prompt
         if last_errors:
             attempt_prompt += (
@@ -203,13 +205,14 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
         content.setdefault("hashtags", ["#Shorts"])
         content.setdefault("cta", "")
         content = _ensure_script_starts_with_hook(content)
+        content = refine_visual_segments(content)
 
         ok, errors = run_shorts_content_gate(content, concept, cfg)
         if ok:
             return content
         last_errors = errors
         print(
-            f"[shorts/content] validation failed (attempt {attempt + 1}/3): "
+            f"[shorts/content] validation failed (attempt {attempt + 1}/{max_attempts}): "
             + "; ".join(errors),
             flush=True,
         )
