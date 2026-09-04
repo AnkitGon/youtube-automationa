@@ -5,11 +5,17 @@ from datetime import datetime, timezone
 MEMORY_FILE = "memoria_lungo_termine.json"
 
 
+def _memory_path() -> str:
+    from moduli.paths import config_path
+    return config_path(MEMORY_FILE)
+
+
 def _load() -> list[dict]:
-    if os.path.exists(MEMORY_FILE):
+    path = _memory_path()
+    if os.path.exists(path):
         for enc in ("utf-8", "cp1252", "latin-1"):
             try:
-                with open(MEMORY_FILE, encoding=enc) as f:
+                with open(path, encoding=enc) as f:
                     return json.load(f)
             except (UnicodeDecodeError, ValueError):
                 continue
@@ -17,7 +23,7 @@ def _load() -> list[dict]:
 
 
 def _save(memories: list[dict]) -> None:
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+    with open(_memory_path(), "w", encoding="utf-8") as f:
         json.dump(memories, f, indent=2, ensure_ascii=False)
 
 

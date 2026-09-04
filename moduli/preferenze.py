@@ -6,6 +6,11 @@ import re
 
 PREF_FILE = "preferenze_video.json"
 
+
+def _pref_path() -> str:
+    from moduli.paths import config_path
+    return config_path(PREF_FILE)
+
 DEFAULT_PREF = {
     "ritmo": "medio",              # lento / medio / veloce
     "tono_voce": "confident",      # confident / casual / dramatic / educational
@@ -27,9 +32,10 @@ DEFAULT_PREF = {
 
 
 def carica() -> dict:
-    if os.path.exists(PREF_FILE):
+    path = _pref_path()
+    if os.path.exists(path):
         try:
-            with open(PREF_FILE, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             return {**DEFAULT_PREF, **data}
         except Exception:
@@ -38,7 +44,7 @@ def carica() -> dict:
 
 
 def salva(pref: dict) -> None:
-    with open(PREF_FILE, "w", encoding="utf-8") as f:
+    with open(_pref_path(), "w", encoding="utf-8") as f:
         json.dump(pref, f, indent=2, ensure_ascii=False)
 
 

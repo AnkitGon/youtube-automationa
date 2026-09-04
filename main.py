@@ -2,7 +2,11 @@ import os
 import sys
 from dotenv import load_dotenv
 
-load_dotenv()
+_config_env = os.environ.get("CONFIG_DIR", "").strip()
+if _config_env:
+    load_dotenv(os.path.join(os.path.abspath(_config_env), ".env"))
+else:
+    load_dotenv()
 
 from moduli.cervello import genera_topic, genera_contenuto
 from moduli.audio import genera_audio

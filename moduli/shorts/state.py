@@ -12,6 +12,11 @@ _LOCK = threading.Lock()
 STATE_FILE = "shorts_state.json"
 
 
+def _state_path() -> str:
+    from moduli.paths import config_path
+    return config_path(STATE_FILE)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -43,10 +48,11 @@ def save_state(state: dict) -> None:
 
 
 def _load() -> dict:
-    if not os.path.exists(STATE_FILE):
+    path = _state_path()
+    if not os.path.exists(path):
         return default_state()
     try:
-        with open(STATE_FILE, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return default_state()
@@ -58,18 +64,19 @@ def _load() -> dict:
 
 
 def _save(state: dict) -> None:
-    backup = f"{STATE_FILE}.bak"
-    tmp = f"{STATE_FILE}.tmp"
-    if os.path.exists(STATE_FILE):
+    path = _state_path()
+    backup = f"{path}.bak"
+    tmp = f"{path}.tmp"
+    if os.path.exists(path):
         try:
-            with open(STATE_FILE, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 json.load(f)
-            shutil.copy2(STATE_FILE, backup)
+            shutil.copy2(path, backup)
         except Exception:
             pass
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, STATE_FILE)
+    os.replace(tmp, path)
 
 
 def completed_slots_today(

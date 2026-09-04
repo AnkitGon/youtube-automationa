@@ -22,7 +22,12 @@ def _h(value) -> str:
     """Escape per i messaggi Telegram con parse_mode=HTML."""
     return html.escape(str(value), quote=True)
 
-load_dotenv()
+# Load .env from CONFIG_DIR if set, else project root
+_config_env = os.environ.get("CONFIG_DIR", "").strip()
+if _config_env:
+    load_dotenv(os.path.join(os.path.abspath(_config_env), ".env"))
+else:
+    load_dotenv()
 
 # ── env validation ────────────────────────────────────────────────────────────
 def _check_env() -> None:

@@ -12,6 +12,11 @@ _LOCK = threading.Lock()
 STATE_FILE = "state.json"
 
 
+def _state_path() -> str:
+    from moduli.paths import config_path
+    return config_path(STATE_FILE)
+
+
 def load_state() -> dict:
     with _LOCK:
         return _load()
@@ -23,14 +28,15 @@ def save_state(state: dict) -> None:
 
 
 def _load() -> dict:
-    if not os.path.exists(STATE_FILE):
+    path = _state_path()
+    if not os.path.exists(path):
         return {}
     try:
-        with open(STATE_FILE, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = f.read().strip()
         return json.loads(data) if data else {}
     except (json.JSONDecodeError, OSError):
-        backup = f"{STATE_FILE}.bak"
+        backup = f"{path}.bak"
         if os.path.exists(backup):
             try:
                 with open(backup, encoding="utf-8") as f:
@@ -42,15 +48,16 @@ def _load() -> dict:
 
 
 def _save(state: dict) -> None:
-    backup = f"{STATE_FILE}.bak"
-    tmp = f"{STATE_FILE}.tmp"
-    if os.path.exists(STATE_FILE):
+    path = _state_path()
+    backup = f"{path}.bak"
+    tmp = f"{path}.tmp"
+    if os.path.exists(path):
         try:
-            with open(STATE_FILE, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 json.load(f)
-            shutil.copy2(STATE_FILE, backup)
+            shutil.copy2(path, backup)
         except Exception:
             pass
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, STATE_FILE)
+    os.replace(tmp, path)

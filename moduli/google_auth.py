@@ -14,15 +14,23 @@ TOKEN_FILE = "token.json"
 CREDENTIALS_FILE = "credentials.json"
 
 
+def _token_path() -> str:
+    from moduli.paths import config_path
+    return config_path(TOKEN_FILE)
+
+
+def _creds_path() -> str:
+    from moduli.paths import config_path
+    return config_path(CREDENTIALS_FILE)
+
+
 def get_credentials() -> Credentials:
     creds = None
-    if os.path.exists(TOKEN_FILE):
+    token_path = _token_path()
+    creds_path = _creds_path()
+    if os.path.exists(token_path):
         try:
-            # NB: niente SCOPES qui — il token usa gli scope con cui è stato
-            # creato. Chiederne di nuovi al refresh farebbe fallire i token
-            # esistenti (invalid_scope). Le API che richiedono scope nuovi
-            # falliscono con errore chiaro: cancellare token.json e rifare login.
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE)
+            creds = Credentials.from_authorized_user_file(token_path)
         except (ValueError, OSError):
             creds = None  # token corrotto → nuovo login
 
@@ -34,15 +42,15 @@ def get_credentials() -> Credentials:
             creds = None
 
     if not creds or not creds.valid:
-        if not os.path.exists(CREDENTIALS_FILE):
-            raise FileNotFoundError(f"{CREDENTIALS_FILE} non trovato")
-        flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+        if not os.path.exists(creds_path):
+            raise FileNotFoundError(f"{creds_path} non trovato")
+        flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
         creds = flow.run_local_server(port=0)
 
-    with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+    with open(token_path, "w", encoding="utf-8") as f:
         f.write(creds.to_json())
     try:
-        os.chmod(TOKEN_FILE, 0o600)
+        os.chmod(token_path, 0o600)
     except OSError:
         pass
     return creds

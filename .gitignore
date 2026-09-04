@@ -1,3 +1,6 @@
+# ── Portable config folder (if CONFIG_DIR=config) ────────────────────────────
+config/
+
 # ── Secrets (never commit) ───────────────────────────────────────────────────
 .env
 .env.local
