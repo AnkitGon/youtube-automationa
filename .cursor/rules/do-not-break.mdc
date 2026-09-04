@@ -1,0 +1,23 @@
+---
+description: Stability first — read before edit; never break working pipeline/Telegram/state contracts
+alwaysApply: true
+---
+
+# Do not break this system
+
+Priority is **working features**, not style.
+
+Before any edit:
+1. Read the target file and its callers/callees.
+2. Check contracts in `AGENTS.md` (Telegram tags, `ai_client` routing, `state.json`, checkpoints, path constants).
+3. Make the smallest change that solves the request.
+4. Do not refactor unrelated code.
+
+Never:
+- Bypass `ai_client._primary()` / `_fallback()`
+- Break Telegram control-tag parsing
+- Rename `state.json` / checkpoint keys without updating all consumers
+- Start a second agent while one is running
+- Commit secrets (`.env`, `credentials.json`, `token.json`)
+
+Full charter: `AGENTS.md`. Architecture map: `CLAUDE.md`.

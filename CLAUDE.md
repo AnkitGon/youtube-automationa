@@ -3,6 +3,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Stability first:** before any change, follow `AGENTS.md` (read existing behavior, preserve contracts, no drive-by breakage). Same rules apply on every device/IDE.
+
 ## Overview
 
 Autonomous YouTube content pipeline. Daemon (`agent.py`) runs 24/7, triggers per scheduled hour, produces full videos (script → TTS → stock clips → montage → thumbnail → upload) with zero human input. Controlled live via Telegram bot.

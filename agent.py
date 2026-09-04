@@ -906,8 +906,8 @@ def _shorts_slot_to_run(now: datetime) -> tuple[int, str] | None:
 
 
 def main():
-    from moduli.logsetup import setup as _log_su_file
-    _log_su_file()
+    from moduli.logsetup import setup as _setup_file_logging
+    _setup_file_logging()
     _acquire_pid_lock()
     _log("=== YouTube AI Agent started ===")
     _cleanup_stale_state()
