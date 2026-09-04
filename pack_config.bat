@@ -39,5 +39,6 @@ echo.
 echo On the new machine:
 echo   1. git clone + pip install -e .
 echo   2. Copy config\ folder over
-echo   3. Run: unpack_config.bat
+echo   3. Windows: unpack_config.bat
+echo      Linux:   chmod +x unpack_config.sh ^&^& ./unpack_config.sh
 echo   4. Run: python agent.py
