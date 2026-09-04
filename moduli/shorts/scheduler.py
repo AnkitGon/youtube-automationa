@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -18,6 +19,16 @@ from moduli.shorts.period_scheduler import (
 )
 
 _SLOT_LABELS = ("morning", "afternoon", "evening")
+
+# After a slot's local start time, keep it eligible this long (same calendar day only).
+_DEFAULT_MISS_RETRY_MINUTES = 60
+
+
+def miss_retry_minutes() -> int:
+    raw = os.environ.get("SHORTS_MISS_RETRY_MINUTES", "").strip()
+    if raw.isdigit():
+        return max(1, min(180, int(raw)))
+    return _DEFAULT_MISS_RETRY_MINUTES
 
 
 @dataclass
@@ -89,6 +100,43 @@ def _scheduler_context(state: dict | None) -> tuple[dict | None, dict | None, in
     )
 
 
+def _slot_plan_windows(
+    *,
+    cfg: ShortsConfig,
+    state: dict,
+    now_utc: datetime,
+) -> list[tuple[int, datetime]]:
+    """Return (slot_index, local_start_today) for today's plan (same calendar day only)."""
+    activity, geography, profiles_count = _scheduler_context(state)
+    plan = resolve_daily_slot_plan(
+        config=cfg,
+        activity=activity,
+        geography=geography,
+        profiles_count=profiles_count,
+        now_utc=now_utc,
+        state=state,
+    )
+    try:
+        tz = ZoneInfo(plan.audience_timezone)
+    except Exception:
+        tz, _ = _audience_tz(cfg)
+    now_local = now_utc.astimezone(tz)
+    windows: list[tuple[int, datetime]] = []
+    for win in plan.slots[: cfg.per_day]:
+        start = now_local.replace(
+            hour=int(win.hour),
+            minute=int(win.minute),
+            second=0,
+            microsecond=0,
+        )
+        windows.append((int(win.slot_index), start))
+    return windows
+
+
+def _grace_end(start_local: datetime, *, grace: timedelta | None = None) -> datetime:
+    return start_local + (grace or timedelta(minutes=miss_retry_minutes()))
+
+
 def skipped_slots_today(
     now_utc: datetime | None = None,
     *,
@@ -96,35 +144,27 @@ def skipped_slots_today(
     state: dict | None = None,
 ) -> list[int]:
     """
-    Slots whose production hour already passed today without a Short.
-    Informational only — missed windows are NOT caught up.
+    Slots whose retry grace already expired today without a Short.
+    Informational — still-eligible missed windows are not listed here.
     """
     from moduli.shorts.state import completed_slots_today, load_state
 
     cfg = config or load_config()
     state = state or load_state()
     now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    tz, _ = _audience_tz(cfg)
-    now_local = now_utc.astimezone(tz)
     done = completed_slots_today(state, now_utc=now_utc)
-    skipped = []
-    activity, geography, profiles_count = _scheduler_context(state)
-    hours = production_hours_local(
-        cfg,
-        activity=activity,
-        geography=geography,
-        profiles_count=profiles_count,
-        state=state,
-    )
-    for slot, hour in enumerate(hours[: cfg.per_day]):
+    grace = timedelta(minutes=miss_retry_minutes())
+    skipped: list[int] = []
+    for slot, start in _slot_plan_windows(cfg=cfg, state=state, now_utc=now_utc):
         if slot in done:
             continue
-        if now_local.hour > hour or (now_local.hour == hour and now_local.minute > 0):
+        now_local = start.tzinfo and now_utc.astimezone(start.tzinfo) or now_utc
+        if now_local >= _grace_end(start, grace=grace):
             skipped.append(slot)
     return skipped
 
 
-# Backward-compatible alias (no catch-up behavior)
+# Backward-compatible alias
 missed_slots_today = skipped_slots_today
 
 
@@ -137,8 +177,13 @@ def next_slot_to_produce(
     """
     Return (slot_index, reason) for the next Short to produce, or None.
 
-    Only the current scheduled hour triggers production. Missed earlier windows
-    are skipped for the day (no catch-up, no carry-forward to tomorrow).
+    A slot is eligible from its local start time for SHORTS_MISS_RETRY_MINUTES
+    (default 60). Same-day only — no carry into the next day.
+
+    Missed-retry (agent late but still inside grace) runs only when exactly one
+    incomplete slot is past its start time today. On-time slots in their own
+    grace window still run even if an earlier slot was permanently skipped.
+    Already completed slots (today_shorts) are never produced again.
     """
     from moduli.shorts.state import load_state, runs_today
 
@@ -150,9 +195,28 @@ def next_slot_to_produce(
         return None
 
     slot = should_produce_short_now(now_utc, config=cfg, state=state)
-    if slot is not None:
-        return slot, "scheduled"
-    return None
+    if slot is None:
+        return None
+    reason = _produce_reason(slot, now_utc=now_utc, config=cfg, state=state)
+    return slot, reason
+
+
+def _produce_reason(
+    slot: int,
+    *,
+    now_utc: datetime | None,
+    config: ShortsConfig,
+    state: dict,
+) -> str:
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    for idx, start in _slot_plan_windows(cfg=config, state=state, now_utc=now_utc):
+        if idx != slot:
+            continue
+        now_local = now_utc.astimezone(start.tzinfo)
+        if now_local.hour == start.hour and now_local >= start:
+            return "scheduled"
+        return "missed_retry"
+    return "scheduled"
 
 
 def should_produce_short_now(
@@ -164,8 +228,10 @@ def should_produce_short_now(
     """
     Return the slot index (0, 1, 2…) to produce now, or None.
 
-    Each slot fires once per day when the local audience clock hits that
-  slot's production hour (morning / afternoon / evening).
+    Eligibility: local start <= now < start + miss-retry window, not completed,
+    same calendar day. If several slots are already past due, only an on-time
+    (current clock-hour) slot may run — unless exactly one slot is past due,
+    in which case that slot may use the miss-retry grace.
     """
     from moduli.shorts.state import completed_slots_today, load_state, runs_today
 
@@ -177,25 +243,38 @@ def should_produce_short_now(
     if runs_today(state, now_utc=now_utc) >= cfg.per_day:
         return None
 
-    activity, geography, profiles_count = _scheduler_context(state)
-    hours = production_hours_local(
-        cfg,
-        activity=activity,
-        geography=geography,
-        profiles_count=profiles_count,
-        state=state,
-    )
-    if not hours:
+    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    done_slots = completed_slots_today(state, now_utc=now_utc)
+    grace = timedelta(minutes=miss_retry_minutes())
+    windows = _slot_plan_windows(cfg=cfg, state=state, now_utc=now_utc)
+    if not windows:
         return None
 
-    now_utc = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    tz, _ = _audience_tz(cfg)
-    current_hour = now_utc.astimezone(tz).hour
-    done_slots = completed_slots_today(state, now_utc=now_utc)
+    in_grace: list[tuple[int, datetime]] = []
+    past_due: list[int] = []
+    for slot, start in windows:
+        if slot in done_slots:
+            continue
+        now_local = now_utc.astimezone(start.tzinfo)
+        if now_local < start:
+            continue
+        past_due.append(slot)
+        if now_local < _grace_end(start, grace=grace):
+            in_grace.append((slot, start))
 
-    for slot, hour in enumerate(hours[: cfg.per_day]):
-        if hour == current_hour and slot not in done_slots:
+    if not in_grace:
+        return None
+
+    # On-time: still inside the slot's clock hour (and grace).
+    for slot, start in in_grace:
+        now_local = now_utc.astimezone(start.tzinfo)
+        if now_local.hour == start.hour:
             return slot
+
+    # Missed-retry spill (e.g. start+grace extends past the clock hour): only
+    # when exactly one incomplete slot is past due today.
+    if len(past_due) == 1 and in_grace and in_grace[0][0] == past_due[0]:
+        return past_due[0]
     return None
 
 

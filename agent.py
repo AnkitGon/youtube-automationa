@@ -936,6 +936,7 @@ def main():
         from moduli.shorts.config import load_config
         from moduli.shorts.state import load_state as _shorts_state, runs_today as _shorts_done
         from moduli.shorts.scheduler import (
+            miss_retry_minutes,
             production_hours_local,
             refresh_shorts_scheduler_cache,
             skipped_slots_today,
@@ -962,7 +963,10 @@ def main():
             skipped = skipped_slots_today(config=scfg, state=ss)
             if skipped:
                 labels = ", ".join(slot_label(s) for s in skipped)
-                _log(f"  Shorts: skipped for today (no catch-up): {labels}")
+                _log(
+                    f"  Shorts: grace expired (skipped for today): {labels} "
+                    f"— miss retry window is {miss_retry_minutes()} min after each start"
+                )
     except Exception:
         pass
 

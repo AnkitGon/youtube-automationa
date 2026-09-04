@@ -21,7 +21,9 @@ Use this whenever the task touches the daemon, pipeline, Telegram bot, AI client
    - checkpoint step names if resume/crash-recovery-related
 4. **Summarize** in one short paragraph: current behavior + what will change + what must stay identical.
 5. **Edit minimally**. Do not refactor neighbors.
-6. **Sanity-check**: grep for old symbol names / tags you changed; ensure every consumer was updated.
-7. **Runtime caution**: only one `agent.py` should poll Telegram; prefer checking `logs/agent-YYYY-MM-DD.log` after risky changes.
+6. **Write or update tests** for the behavior you changed (add cases in `tests/` next to existing coverage).
+7. **Run those tests** and fix failures before answering the user. Do not return “done” on red tests.
+8. **Sanity-check**: grep for old symbol names / tags you changed; ensure every consumer was updated.
+9. **Runtime caution**: only one `agent.py` should poll Telegram; prefer checking `logs/agent-YYYY-MM-DD.log` after risky changes.
 
 If you cannot explain current behavior from the code, stop and ask the user — do not guess.

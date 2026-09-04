@@ -12,6 +12,7 @@ Before any edit:
 2. Check contracts in `AGENTS.md` (Telegram tags, `ai_client` routing, `state.json`, checkpoints, path constants).
 3. Make the smallest change that solves the request.
 4. Do not refactor unrelated code.
+5. When changing behavior: add/update tests under `tests/` and run them before saying done.
 
 Never:
 - Bypass `ai_client._primary()` / `_fallback()`

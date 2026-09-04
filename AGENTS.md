@@ -11,7 +11,8 @@ This is not about code style. It is about **not breaking working features**.
 2. **Name the blast radius** — State what can break (upload, TTS, Shorts slots, bot commands, scheduling, checkpoints).
 3. **Smallest safe change** — Prefer a focused fix over refactors. Do not “clean up” unrelated code.
 4. **Preserve contracts** — If you change a parser, prompt tag, env key, JSON shape, or CLI entrypoint, update every consumer in the same change.
-5. **Verify** — Prefer running the narrowest existing check (`preflight`, a single module path, or reading today’s `logs/agent-*.log`). Do not invent a second agent process while one is already running.
+5. **Test before return** — When behavior changes, add/update tests under `tests/` and run them successfully before telling the user it is done (Boost-style). Prefer the narrowest relevant suite.
+6. **Verify runtime** — Prefer `preflight`, a single module path, or today’s `logs/agent-*.log`. Do not start a second agent process while one is already running.
 
 If the request is unclear or risks the live pipeline, **ask** before changing behavior.
 

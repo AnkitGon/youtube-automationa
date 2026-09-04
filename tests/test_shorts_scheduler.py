@@ -78,25 +78,64 @@ class ShortsSchedulerTests(unittest.TestCase):
         self.assertEqual(slot, 1)
 
     def test_should_not_produce_between_slots(self):
+        # 06:00 UTC = 11:30 IST — morning grace (10:00–11:00 IST) expired
         now = datetime(2026, 3, 15, 6, 0, tzinfo=timezone.utc)
         state = {"enabled": True, "runs_today": {}, "today_shorts": []}
         self.assertIsNone(should_produce_short_now(now, config=self.cfg, state=state))
 
-    def test_missed_morning_is_skipped_not_caught_up(self):
-        # 09:30 UTC = 15:00 IST — morning passed, afternoon runs now (no morning catch-up)
+    def test_missed_morning_within_grace_is_retried(self):
+        # 05:15 UTC = 10:45 IST — inside 10:00 + 60min grace
+        now = datetime(2026, 3, 15, 5, 15, tzinfo=timezone.utc)
+        state = {"enabled": True, "runs_today": {}, "today_shorts": []}
+        self.assertEqual(skipped_slots_today(now, config=self.cfg, state=state), [])
+        self.assertEqual(next_slot_to_produce(now, config=self.cfg, state=state), (0, "scheduled"))
+        self.assertEqual(should_produce_short_now(now, config=self.cfg, state=state), 0)
+
+    def test_missed_morning_after_grace_is_skipped(self):
+        # 05:30 UTC = 11:00 IST — grace ended (10:00 + 60min)
+        now = datetime(2026, 3, 15, 5, 30, tzinfo=timezone.utc)
+        state = {"enabled": True, "runs_today": {}, "today_shorts": []}
+        self.assertEqual(skipped_slots_today(now, config=self.cfg, state=state), [0])
+        self.assertIsNone(next_slot_to_produce(now, config=self.cfg, state=state))
+        self.assertIsNone(should_produce_short_now(now, config=self.cfg, state=state))
+
+    def test_afternoon_runs_when_morning_grace_expired(self):
+        # 09:30 UTC = 15:00 IST — morning expired earlier; afternoon on-time
         now = datetime(2026, 3, 15, 9, 30, tzinfo=timezone.utc)
         state = {"enabled": True, "runs_today": {}, "today_shorts": []}
         self.assertEqual(skipped_slots_today(now, config=self.cfg, state=state), [0])
         self.assertEqual(next_slot_to_produce(now, config=self.cfg, state=state), (1, "scheduled"))
         self.assertEqual(should_produce_short_now(now, config=self.cfg, state=state), 1)
 
-    def test_no_catch_up_when_multiple_windows_missed(self):
-        # 12:30 UTC = 18:00 IST — morning and afternoon missed
+    def test_no_retry_when_multiple_windows_missed(self):
+        # 12:30 UTC = 18:00 IST — morning + afternoon past grace; evening not due
         now = datetime(2026, 3, 15, 12, 30, tzinfo=timezone.utc)
         state = {"enabled": True, "runs_today": {}, "today_shorts": []}
         self.assertEqual(skipped_slots_today(now, config=self.cfg, state=state), [0, 1])
+        self.assertIsNone(next_slot_to_produce(now, config=self.cfg, state=state))
+
+    def test_completed_slot_not_reprocessed_during_grace(self):
+        # Still inside morning grace, but already recorded in today_shorts
+        now = datetime(2026, 3, 15, 5, 15, tzinfo=timezone.utc)
+        state = {
+            "enabled": True,
+            "runs_today": {"2026-03-15": 1},
+            "today_shorts": [{"date": "2026-03-15", "slot": 0}],
+        }
+        self.assertIsNone(should_produce_short_now(now, config=self.cfg, state=state))
+        self.assertIsNone(next_slot_to_produce(now, config=self.cfg, state=state))
+
+    def test_miss_retry_does_not_carry_to_next_day(self):
+        # Next calendar day morning — yesterday's miss must not fire
+        now = datetime(2026, 3, 16, 4, 45, tzinfo=timezone.utc)  # 10:15 IST Mar 16
+        state = {
+            "enabled": True,
+            "runs_today": {},
+            "today_shorts": [],
+            # leftover from previous day must not block/confuse today's slots
+        }
         pick = next_slot_to_produce(now, config=self.cfg, state=state)
-        self.assertIsNone(pick)
+        self.assertEqual(pick, (0, "scheduled"))
 
     def test_start_at_afternoon_hour_only_runs_afternoon(self):
         now = datetime(2026, 3, 15, 9, 30, tzinfo=timezone.utc)
@@ -108,6 +147,14 @@ class ShortsSchedulerTests(unittest.TestCase):
         now = datetime(2026, 3, 15, 11, 0, tzinfo=timezone.utc)
         state = {"enabled": True, "runs_today": {}, "today_shorts": []}
         self.assertIsNone(next_slot_to_produce(now, config=self.cfg, state=state))
+
+    def test_miss_retry_spill_into_next_hour_when_grace_allows(self):
+        # Grace 90 min: 10:00 IST → eligible until 11:30 IST; at 11:15 only morning is past due
+        now = datetime(2026, 3, 15, 5, 45, tzinfo=timezone.utc)  # 11:15 IST
+        state = {"enabled": True, "runs_today": {}, "today_shorts": []}
+        with patch.dict(os.environ, {"SHORTS_MISS_RETRY_MINUTES": "90"}, clear=False):
+            pick = next_slot_to_produce(now, config=self.cfg, state=state)
+        self.assertEqual(pick, (0, "missed_retry"))
 
     def test_production_hours_from_config(self):
         hours = production_hours_local(ShortsConfig(production_hours=[9, 14, 19]))
