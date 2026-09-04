@@ -85,6 +85,7 @@ from moduli.analytics_cache import get_channel_performance
 from moduli.strategia import calcola_strategia, ANALYTICS_UNAVAILABLE_NOTE
 from moduli.manutenzione import (
     assicura_spazio, pulisci_cache, pulisci_temp_render, spazio_libero_gb,
+    maybe_daily_runtime_cleanup,
 )
 from moduli.notifiche import (
 notify_start, notify_step, notify_done, notify_error, notify_analytics
@@ -905,6 +906,41 @@ def _shorts_slot_to_run(now: datetime) -> tuple[int, str] | None:
         return None
 
 
+def _maybe_run_daily_cleanup(now: datetime) -> None:
+    """Wipe cache/ + output/ once per local day after cleanup hour, if idle."""
+    try:
+        from moduli.shorts.state import load_state as load_shorts_state
+
+        state = _load_state()
+        shorts_state = load_shorts_state()
+        result = maybe_daily_runtime_cleanup(
+            now_utc=now,
+            longform_state=state,
+            shorts_state=shorts_state,
+            last_cleanup_date=state.get("last_daily_cleanup"),
+        )
+        if result.get("deferred"):
+            # Log at most once per hour to avoid spam while waiting for idle.
+            key = f"cleanup_defer_{result.get('date')}_{now.hour}"
+            if getattr(_maybe_run_daily_cleanup, "_last_defer_key", None) != key:
+                _maybe_run_daily_cleanup._last_defer_key = key
+                _log(f"  Daily cleanup deferred ({result.get('reason')}) — will retry when idle")
+            return
+        if not result.get("ran"):
+            return
+        stats = result.get("stats") or {}
+        state = _load_state()
+        state["last_daily_cleanup"] = result["date"]
+        _save_state(state)
+        _log(
+            f"  Daily cleanup done ({result.get('timezone')} {result.get('hour'):02d}:00+) — "
+            f"freed {stats.get('freed_mb', 0)} MB "
+            f"(output {stats.get('output_items', 0)} items, cache {stats.get('cache_items', 0)} items)"
+        )
+    except Exception as e:
+        _log(f"  Daily cleanup failed: {e}")
+
+
 def main():
     from moduli.logsetup import setup as _setup_file_logging
     _setup_file_logging()
@@ -978,6 +1014,8 @@ def main():
     while True:
         state = _load_state()
         now = datetime.now(timezone.utc)
+
+        _maybe_run_daily_cleanup(now)
 
         # watchdog: senza bot l'agente resta vivo ma non più controllabile
         # da Telegram — riavvialo (max 3 volte, poi avvisa e arrenditi)
