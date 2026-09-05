@@ -8,20 +8,22 @@ forzata ma per una narrazione TTS a ritmo costante è molto vicina.
 import os
 import re
 
-MAX_PAROLE_BLOCCO = 12
+MAX_PAROLE_BLOCCO = 5
 
 
 def _blocchi(script: str) -> list[str]:
-    """Spezza lo script in blocchi leggibili: frasi, poi max 12 parole."""
+    """Spezza lo script in blocchi leggibili: frasi/clausole, poi max 5 parole."""
     testo = re.sub(r"\s+", " ", script or "").strip()
     if not testo:
         return []
     frasi = [s.strip() for s in re.split(r"(?<=[.!?])\s+", testo) if s.strip()]
     blocchi = []
     for frase in frasi:
-        parole = frase.split()
-        for i in range(0, len(parole), MAX_PAROLE_BLOCCO):
-            blocchi.append(" ".join(parole[i:i + MAX_PAROLE_BLOCCO]))
+        clausole = [c.strip() for c in re.split(r"(?<=[,;:—])\s+", frase) if c.strip()]
+        for clausola in clausole:
+            parole = clausola.split()
+            for i in range(0, len(parole), MAX_PAROLE_BLOCCO):
+                blocchi.append(" ".join(parole[i : i + MAX_PAROLE_BLOCCO]))
     return blocchi
 
 

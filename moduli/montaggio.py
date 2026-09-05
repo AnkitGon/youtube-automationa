@@ -294,13 +294,29 @@ def _escape_drawtext(text: str) -> str:
     )
 
 
-def _caption_text(text: str) -> str:
+def _caption_text(text: str, max_chars_per_line: int = 36) -> str:
     cleaned = " ".join(text.replace("\n", " ").split())
     cleaned = cleaned.strip(" -–—:;,.!?\"'").upper()
     words = cleaned.split()
     if len(words) > 10:
-        cleaned = " ".join(words[:10])
-    return cleaned[:78]
+        words = words[:10]
+    if not words:
+        return ""
+    lines: list[str] = []
+    curr: list[str] = []
+    curr_len = 0
+    for w in words:
+        addition = len(w) + (1 if curr else 0)
+        if curr_len + addition > max_chars_per_line and curr:
+            lines.append(" ".join(curr))
+            curr = [w]
+            curr_len = len(w)
+        else:
+            curr.append(w)
+            curr_len += addition
+    if curr:
+        lines.append(" ".join(curr))
+    return "\n".join(lines[:2])
 
 
 def _split_sentences(script: str) -> list[str]:

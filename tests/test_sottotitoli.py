@@ -26,6 +26,14 @@ class SottotitoliTests(unittest.TestCase):
             self.assertIn("-->", text)
             self.assertGreater(os.path.getsize(out), 50)
 
+    def test_max_words_per_subtitle_block(self):
+        from moduli.sottotitoli import _blocchi
+        script = "Try writing that for a model that took six months to train and build."
+        blocchi = _blocchi(script)
+        for b in blocchi:
+            self.assertLessEqual(len(b.split()), 5)
+        self.assertGreater(len(blocchi), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
