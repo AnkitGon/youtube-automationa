@@ -73,14 +73,19 @@ def generate_ass(
         groups = [script[:80]] if script else ["..."]
 
     total_chars = sum(len(g) for g in groups) or 1
+    raw_durs = [audio_duration * (len(g) / total_chars) for g in groups]
+    clamped_durs = [max(0.25, d) for d in raw_durs]
+    total_clamped = sum(clamped_durs) or audio_duration
+    scale = audio_duration / total_clamped
+    group_durs = [d * scale for d in clamped_durs]
+
     t = 0.0
     events = []
     hook_set = {w.lower() for w in hook_words.split() if len(w) > 2}
 
-    for group in groups:
-        frac = len(group) / total_chars
-        dur = max(0.4, audio_duration * frac)
-        end = min(t + dur, audio_duration)
+    for i, group in enumerate(groups):
+        dur = group_durs[i]
+        end = audio_duration if i == len(groups) - 1 else min(t + dur, audio_duration)
         style = "Hook" if any(w.lower() in hook_set for w in group.split()) else "Default"
         text = group.replace("\n", " ")
         if uppercase:

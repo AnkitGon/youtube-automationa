@@ -44,6 +44,26 @@ def _send_photo(image_path: str, caption: str) -> None:
         pass
 
 
+def notify_video_file(video_path: str, caption: str = "") -> bool:
+    """Send a preview video file directly to Telegram chat for review (without YouTube upload)."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id or not os.path.exists(video_path):
+        return False
+    try:
+        with open(video_path, "rb") as f:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{token}/sendVideo",
+                data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                files={"video": f},
+                timeout=120,
+            )
+        return resp.status_code == 200
+    except Exception as e:
+        print(f"[notifiche] sendVideo error: {e}", flush=True)
+        return False
+
+
 def notify_start(topic: str) -> None:
     _send(f"🎬 <b>Nuovo video in produzione</b>\n\n📌 Topic: <i>{_esc(topic)}</i>\n\nInizio pipeline...")
 
