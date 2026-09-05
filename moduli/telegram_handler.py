@@ -1528,12 +1528,13 @@ async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     done = runs_today(state)
     hours = production_hours_local(cfg, state=state)
     plan = state.get("daily_slot_plan") or {}
+    tz_display = plan.get("audience_timezone") or cfg.timezone
     enabled = cfg.enabled and state.get("enabled", True)
     last_batch = state.get("last_batch_at") or "never"
     status = state.get("pipeline_status") or {}
     step = status.get("step", "idle")
     slot_lines = [
-        f"  {slot_label(i).title()}: {h:02d}:00 {cfg.timezone}"
+        f"  {slot_label(i).title()}: {h:02d}:00 {tz_display}"
         for i, h in enumerate(hours[: cfg.per_day])
     ]
     sched_note = ""
@@ -1546,7 +1547,7 @@ async def cmd_shorts(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         f"📱 <b>Shorts status</b>\n\n"
         f"Enabled: {'ON' if enabled else 'OFF'}\n"
         f"Today: {done}/{cfg.per_day}{sched_note}\n"
-        f"Production ({html.escape(cfg.timezone)}):\n"
+        f"Production ({html.escape(tz_display)}):\n"
         + "\n".join(slot_lines)
         + f"\nLast run: {html.escape(str(last_batch))}\n"
         f"Pipeline: {html.escape(str(step))}\n\n"
