@@ -49,7 +49,17 @@ def _parse_pattern_strings(raw) -> list[str]:
 
 
 def _is_title_like_pattern(pattern: str) -> bool:
-    return bool(re.match(r"^title\s+like:\s*.+", (pattern or "").strip(), re.I))
+    pat = (pattern or "").strip()
+    if bool(re.match(r"^title\s+like:\s*.+", pat, re.I)):
+        return True
+    # Title taxonomy structure IDs from title_learning module
+    if pat.lower() in {
+        "how_why_what", "truth_about", "unexpected", "numbered",
+        "controversy", "vs_comparison", "curiosity", "hidden_reason",
+        "how_x_changed", "question", "colon_hook", "statement",
+    }:
+        return True
+    return False
 
 
 def _filter_preference_conflicts(patterns: list[str], pref: dict | None) -> list[str]:

@@ -581,7 +581,8 @@ def leggi_monthly_audience(*, months: int = 6) -> dict:
     try:
         yta = _analytics_client()
         end = date.today()
-        start = end - timedelta(days=max(30, months * 30))
+        raw_start = end - timedelta(days=max(30, months * 30))
+        start = raw_start.replace(day=1)
         report = _safe_channel_report(
             yta,
             metrics="views,estimatedMinutesWatched",
