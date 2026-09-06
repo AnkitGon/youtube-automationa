@@ -95,20 +95,42 @@ def _burn_captions(video_path: str, ass_path: str, output_path: str, width: int,
         raise RuntimeError(f"ffmpeg caption burn failed: {result.stderr[-1500:]}")
 
 
-def _mux_audio(video_path: str, audio_path: str, output_path: str) -> None:
+def _mux_audio(video_path: str, audio_path: str, output_path: str, mood: str | None = None) -> None:
     ff = ffmpeg_path()
-    cmd = [
-        ff, "-y",
-        "-i", video_path,
-        "-i", audio_path,
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-shortest",
-        "-movflags", "+faststart",
-        output_path,
-    ]
+    from moduli.montaggio import _pick_music, _bg_volume
+    music_path = _pick_music(mood)
+    
+    if music_path and os.path.exists(music_path):
+        bg_vol = _bg_volume()
+        filter_complex = f"[1:a]volume=1.0[voice];[2:a]volume={bg_vol:.2f}[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        cmd = [
+            ff, "-y",
+            "-i", video_path,
+            "-i", audio_path,
+            "-stream_loop", "-1",
+            "-i", music_path,
+            "-filter_complex", filter_complex,
+            "-map", "0:v:0",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            "-movflags", "+faststart",
+            output_path,
+        ]
+    else:
+        cmd = [
+            ff, "-y",
+            "-i", video_path,
+            "-i", audio_path,
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            "-movflags", "+faststart",
+            output_path,
+        ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg mux failed: {result.stderr[-1500:]}")
@@ -139,6 +161,7 @@ def monta_short(
     output_path: str,
     *,
     config: ShortsConfig | None = None,
+    mood: str | None = None,
 ) -> float:
     """
     Render vertical Short video.
@@ -179,7 +202,7 @@ def monta_short(
         else:
             captioned = raw_video
 
-        _mux_audio(captioned, audio_path, output_path)
+        _mux_audio(captioned, audio_path, output_path, mood=mood)
         return media_duration(output_path)
     finally:
         import shutil

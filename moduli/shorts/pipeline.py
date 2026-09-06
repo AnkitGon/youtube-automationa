@@ -223,7 +223,7 @@ def run_single_short(
 
         set_pipeline_status("render", slot_index)
         _log(f"Slot {slot_index}: rendering 9:16")
-        monta_short(paths["audio"], segments, paths["ass"], paths["video"], config=cfg)
+        monta_short(paths["audio"], segments, paths["ass"], paths["video"], config=cfg, mood=content.get("mood"))
 
         ok, errors = validate_short(
             content=content,

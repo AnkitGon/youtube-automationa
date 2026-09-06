@@ -165,11 +165,21 @@ def _bg_volume() -> float:
 
 
 def _pick_music(mood: str | None) -> str | None:
+    # 1. Try fetching from Open-License Music Provider API
+    try:
+        from moduli.open_music import get_open_license_music
+        open_track = get_open_license_music(mood)
+        if open_track and os.path.exists(open_track):
+            return open_track
+    except Exception as e:
+        print(f"[montaggio] Open music fetch error: {e}", flush=True)
+
+    # 2. Local directory fallback
     if mood and mood.lower() in ALLOWED_MOODS:
         tracks = glob.glob(os.path.join(BG_MUSIC_DIR, mood.lower(), "*.mp3"))
         if tracks:
             return random.choice(tracks)
-    tracks = glob.glob(os.path.join(BG_MUSIC_DIR, "*.mp3"))
+    tracks = glob.glob(os.path.join(BG_MUSIC_DIR, "**", "*.mp3"), recursive=True)
     if tracks:
         return random.choice(tracks)
     if os.path.exists(BG_MUSIC_PATH):
