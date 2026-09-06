@@ -138,7 +138,7 @@ Language: write title, description, tags and script entirely in {language}.
 
 Reply ONLY with valid JSON, exact structure:
 {{
-  "title": "Compelling title, max 70 chars",
+  "title": "Compelling title, max 70 chars, NO dashes (-) or em-dashes (—), NO colons (:)",
   "mood": "ONE word: epic | chill | mysterious | upbeat | tense",
   "thumbnail_phrase": "2-3 words MAX, ALL CAPS — complementary to title, NOT a repeat of title words",
   "thumbnail_font_size": "ONE letter: A | B | C | D",

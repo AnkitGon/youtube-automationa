@@ -178,7 +178,7 @@ def generate_short_content(concept: dict, *, config: ShortsConfig | None = None)
         "  Never use alone: technology, innovation, trends, futuristic, digital transformation.\n"
         "- `visual_intent`: one specific filmed scene (e.g. 'worker inspecting car engine').\n"
         "- Segments must follow script order; keywords must match what is being said in that line.\n\n"
-        "JSON keys: title (max 70 chars), hook, script, angle, key_claims (array), "
+        "JSON keys: title (max 70 chars, NO dashes or em-dashes like '-' or '—', NO colons ':'), hook, script, angle, key_claims (array), "
         "payoff, description, tags (array), hashtags (include #Shorts), "
         "visual_segments (array of {text, keywords, visual_intent, duration_hint as number in seconds}), "
         "target_duration_seconds, source_type, cta (optional)."
